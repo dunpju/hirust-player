@@ -198,6 +198,9 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun seekTo(ms: Long) = PlayerBus.seekTo(ms)
 
+    /** 回前台对齐引擎状态(见 PlayerBus.syncFromEngine)。 */
+    fun syncFromEngine() = PlayerBus.syncFromEngine()
+
     /** 点播当前视图中的曲目。 */
     fun playAt(index: Int) = PlayerBus.playFromView(index)
 

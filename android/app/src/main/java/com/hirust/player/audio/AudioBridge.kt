@@ -77,6 +77,9 @@ object AudioBridge {
     external fun positionMs(): Long
     external fun durationMs(): Long
     external fun state(): Int
+
+    /** 当前曲目队列下标(无曲目 -1);回前台/服务启动时对齐 UI 用。 */
+    external fun queueIndex(): Int
     external fun setRepeatMode(mode: Int)
     external fun setShuffle(on: Boolean)
     external fun setVolume(volume: Float)

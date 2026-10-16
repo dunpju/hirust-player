@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -31,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,6 +48,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.hirust.player.audio.AudioBridge
@@ -97,6 +101,7 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
     ) { uri -> uri?.let(vm::addFolder) }
 
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(Unit) {
         val wanted = audioPermissions()
@@ -109,6 +114,15 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         } else {
             permLauncher.launch(wanted)
         }
+    }
+
+    // 回前台时与引擎对齐(后台切歌事件可能丢失:服务/Activity 重建、进程冻结窗口)。
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.syncFromEngine()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(
@@ -344,7 +358,14 @@ private fun TrackList(
         }
         return
     }
-    LazyColumn(modifier = modifier) {
+    // 当前曲目变化(含回前台自愈)时滚动到正在播放的曲目。
+    val listState = rememberLazyListState()
+    LaunchedEffect(currentIndex, highlightEnabled) {
+        if (highlightEnabled && currentIndex in tracks.indices) {
+            runCatching { listState.animateScrollToItem(currentIndex) }
+        }
+    }
+    LazyColumn(modifier = modifier, state = listState) {
         itemsIndexed(tracks, key = { _, t -> t.path }) { index, track ->
             val current = highlightEnabled && index == currentIndex
             Row(

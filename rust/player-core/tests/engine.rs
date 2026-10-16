@@ -365,3 +365,48 @@ fn set_queue_during_playback_switches_to_new_start() {
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
 }
+
+#[test]
+fn engine_current_index_follows_queue() {
+    let a = temp_wav("eng10a");
+    let b = temp_wav("eng10b");
+    write_sine_wav(&a, 44_100, 1500);
+    write_sine_wav(&b, 44_100, 1500);
+
+    // 实时节奏:避免全速模式曲目瞬间播完、断言前队列已自然结束的竞态。
+    let (mock, _sink) = MockOutput::new(true);
+    let engine = Engine::new(Box::new(mock));
+    assert_eq!(engine.current_index(), None);
+
+    engine.set_queue(vec![a.clone(), b.clone()], Some(0));
+    engine.play();
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 0 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert_eq!(engine.current_index(), Some(0));
+
+    engine.next();
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 1 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert_eq!(engine.current_index(), Some(1));
+
+    engine.stop();
+    assert!(wait_event(
+        &engine,
+        state_changed(PlayState::Stopped),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert_eq!(engine.current_index(), None);
+
+    engine.shutdown();
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}

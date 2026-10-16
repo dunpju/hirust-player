@@ -379,3 +379,12 @@ fn json_escape(s: &str) -> String {
     }
     out
 }
+
+/// 当前曲目在队列中的下标(无曲目为 -1);UI 回前台/服务启动时据此自愈对齐。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_queueIndex(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) -> jint {
+    query_engine(-1, |e| e.current_index().map(|i| i as jint).unwrap_or(-1))
+}

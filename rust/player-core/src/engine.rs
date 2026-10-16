@@ -5,7 +5,7 @@
 //! 音频回调线程由输出后端在 M2 引入,本层只与后端的 `write` 打交道。
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -84,6 +84,8 @@ struct Shared {
     state: Mutex<PlayState>,
     position_ms: AtomicU64,
     duration_ms: AtomicU64,
+    /// 当前曲目队列下标;-1 表示无曲目(事件丢失时 UI 可查询自愈)。
+    current_index: AtomicI64,
 }
 
 /// 引擎句柄:发送命令、接收事件、查询状态;drop 时自动关停引擎线程。
@@ -99,6 +101,8 @@ impl Engine {
         let (tx, rx) = std::sync::mpsc::channel();
         let (etx, erx) = std::sync::mpsc::channel();
         let shared = Arc::new(Shared::default());
+        // AtomicI64 的 Default 是 0;无曲目必须为 -1(0 是合法队列下标)。
+        shared.current_index.store(-1, Ordering::Relaxed);
         let worker_shared = Arc::clone(&shared);
 
         let spawned = std::thread::Builder::new()
@@ -187,6 +191,16 @@ impl Engine {
     /// 当前曲目总时长(毫秒;未知为 0)。
     pub fn duration_ms(&self) -> u64 {
         self.shared.duration_ms.load(Ordering::Relaxed)
+    }
+
+    /// 当前曲目在队列中的下标(无曲目为 `None`)。
+    pub fn current_index(&self) -> Option<usize> {
+        let v = self.shared.current_index.load(Ordering::Relaxed);
+        if v < 0 {
+            None
+        } else {
+            Some(v as usize)
+        }
     }
 
     /// 显式关停引擎线程。
@@ -425,6 +439,7 @@ impl Worker {
                     .duration_ms
                     .store(info.duration_ms, Ordering::Relaxed);
                 shared.position_ms.store(0, Ordering::Relaxed);
+                shared.current_index.store(index as i64, Ordering::Relaxed);
                 self.last_pos_emit = None;
                 let _ = etx.send(EngineEvent::TrackStarted { index });
                 true
@@ -486,6 +501,7 @@ impl Worker {
             self.emit_error(etx, format!("停止输出失败: {e}"));
         }
         shared.position_ms.store(0, Ordering::Relaxed);
+        shared.current_index.store(-1, Ordering::Relaxed);
         self.set_state(PlayState::Stopped, etx, shared);
     }
 

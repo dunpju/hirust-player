@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import com.hirust.player.audio.AudioBridge
+import com.hirust.player.audio.PlayStates
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -160,6 +161,23 @@ object PlayerBus {
         val target = ms.coerceAtLeast(0)
         AudioBridge.seekMs(target)
         update { it.copy(positionMs = target) }
+    }
+
+    /**
+     * 从引擎拉取权威状态,自愈后台期间丢失的事件(服务重建/Activity 重建/冻结窗口)。
+     * UI 回前台(ON_RESUME)与服务启动时调用。
+     */
+    fun syncFromEngine() {
+        val index = AudioBridge.queueIndex()
+        val st = AudioBridge.state()
+        update {
+            it.copy(
+                currentIndex = index,
+                playing = st == PlayStates.PLAYING,
+                positionMs = AudioBridge.positionMs(),
+                durationMs = AudioBridge.durationMs(),
+            )
+        }
     }
 
     /** 设置音量 [0,1](用户音量;引擎实际音量 = 用户音量 × duck 系数)。 */

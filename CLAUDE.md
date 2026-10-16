@@ -151,6 +151,7 @@ adb logcat -s hirust
 | `engineStart()` / `release()` | K→R | ✅ M2 |
 | `setQueue(paths, start)` / `play()` / `pause()` / `resume()` / `stop()` / `next()` / `prev()` | K→R | ✅ M2 |
 | `seekMs(ms)` / `positionMs()` / `durationMs()` / `state()` | K↔R | ✅ M2 |
+| `queueIndex()` | K↔R | ✅ 0.7.0(回前台自愈) |
 | `setRepeatMode(mode)` / `setShuffle(on)` | K→R | ✅ M2 |
 | `onStateChanged` / `onPositionChanged` / `onTrackStarted` / `onTrackEnded` / `onQueueEnded` / `onError` | R→K 回调 | ✅ M2 |
 | `outputStart/Write/Suspend/Resume/Stop`(AudioTrack 宿主) | R→K | ✅ M2 |
@@ -236,7 +237,8 @@ adb logcat -s hirust
 - [x] 修复:播放中点选其他曲目无响应(提示「未在播放」)——引擎 `SetQueue` 原本只换队列数据、`play()` 在 Playing 态为 no-op;现播放/暂停中替换队列立即切到新起点曲目并保持播放状态(+1 桌面测试,共 23 用例)
 - [x] 修复:窄屏下控制行 5 键溢出,末尾「随机」按钮被挤压成空白椭圆;改为两行布局(播放三键 / 顺序+随机+音量)
 - [x] 修复:拖动进度条回弹、时间不跟随——seek 异步空窗期(引擎 10Hz 事件未到)UI 弹回旧位置;现 `PlayerBus.seekTo` 乐观写入目标位置(引擎 seek 处理完即发精确位置事件校正),拖动中时间文本跟随手指;通知栏 seek 同路径统一
-- [ ] 验收:添加含 mp3/flac 的目录 → 列表正确、元数据完整;播放中切到其他列表不打断;**播放中点选同列表其他曲目立即切换**;混入损坏文件自动跳过;重启后文件夹仍在;播放页总时长与曲目一致;**拖动进度无回弹、时间跟随**
+- [x] 修复:后台播放切歌后回前台,UI 停在上一首(曲目/时间/高亮全卡)——此前引擎状态只有事件单向推送、无查询通道,丢事件即永久失联。新增 JNI `queueIndex()`(Engine.current_index,Shared 原子变量);`PlayerBus.syncFromEngine()` 在 ON_RESUME 与服务启动时拉权威状态对齐;列表自动滚动到正在播放曲目(+1 桌面测试,共 24 用例)
+- [ ] 验收:添加含 mp3/flac 的目录 → 列表正确、元数据完整;播放中切到其他列表不打断;**播放中点选同列表其他曲目立即切换**;混入损坏文件自动跳过;重启后文件夹仍在;播放页总时长与曲目一致;拖动进度无回弹、时间跟随;**后台切歌回前台 UI 正确跟随(标题/时间/高亮/滚动)**
 
 ## 10. CI(GitHub Actions)
 
