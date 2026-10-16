@@ -8,6 +8,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
+/** 文件夹播放列表(一个目录 = 一个播放列表,路径持久化)。 */
+data class Folder(
+    val name: String,
+    val path: String,
+)
+
 /** 音频条目元数据(MediaStore 扫描结果)。 */
 data class Track(
     val id: Long,
@@ -27,9 +33,23 @@ data class Track(
         }
 }
 
-/** 全局播放状态快照:服务(事件源)与 UI(观察者)之间的单一事实来源。 */
+/**
+ * 全局播放状态快照:服务(事件源)与 UI(观察者)之间的单一事实来源。
+ *
+ * 队列(`tracks`)与视图(`view`)分离:切列表只换 view,不打断正在播放的队列;
+ * 点播时才把 view 装载为队列。`viewSource/queueSource` 一致时列表高亮当前曲目。
+ */
 data class BusState(
+    /** 引擎播放队列(EnginePlayer 时间线也基于此)。 */
     val tracks: List<Track> = emptyList(),
+    /** UI 正在展示的列表(全部音乐或某文件夹)。 */
+    val view: List<Track> = emptyList(),
+    /** 视图来源:null = 全部音乐,否则为文件夹路径。 */
+    val viewSource: String? = null,
+    /** 队列来源:同上;恢复场景为哨兵值(不与任何视图相等,避免错误高亮)。 */
+    val queueSource: String? = RESTORED,
+    /** 已添加的文件夹播放列表。 */
+    val folders: List<Folder> = emptyList(),
     val currentIndex: Int = -1,
     val playing: Boolean = false,
     val positionMs: Long = 0,
@@ -39,12 +59,16 @@ data class BusState(
     val shuffle: Boolean = false,
     val volume: Float = 1.0f,
     val error: String? = null,
-)
+) {
+    companion object {
+        /** 进程被杀恢复的队列来源哨兵。 */
+        const val RESTORED = "\u0000restored"
+    }
+}
 
 /**
  * 播放状态总线:PlaybackService 写、UI 读;StateFlow 线程安全。
- *
- * 同时负责队列持久化/恢复(进程被杀后按路径恢复,暂停态,不自动续播)。
+ * 队列持久化/恢复 + 文件夹列表持久化。
  */
 object PlayerBus {
 
@@ -52,6 +76,7 @@ object PlayerBus {
     private const val KEY_PATHS = "paths"
     private const val KEY_TITLES = "titles"
     private const val KEY_INDEX = "index"
+    private const val KEY_FOLDERS = "folders"
     private const val SEP = "\n"
 
     val state: StateFlow<BusState> = MutableStateFlow(BusState())
@@ -64,15 +89,56 @@ object PlayerBus {
         (state as MutableStateFlow).value = f(state.value)
     }
 
-    fun setTracks(tracks: List<Track>) = update { it.copy(tracks = tracks) }
+    /** 切换 UI 视图(全部音乐/某文件夹),不影响播放队列。 */
+    fun setView(tracks: List<Track>, source: String?) = update {
+        it.copy(view = tracks, viewSource = source)
+    }
 
-    /** 从指定曲目开始播放(替换队列为当前列表)。 */
+    /** 设置文件夹列表(添加/删除后调用,同时持久化)。 */
+    fun setFolders(context: Context, folders: List<Folder>) {
+        update { it.copy(folders = folders) }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_FOLDERS, folders.joinToString(SEP) { it.path })
+            .apply()
+    }
+
+    /** 恢复持久化的文件夹列表(服务启动时调用)。 */
+    fun restoreFolders(context: Context) {
+        if (state.value.folders.isNotEmpty()) return
+        val paths = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_FOLDERS, null)
+            ?.split(SEP)
+            .orEmpty()
+        val folders = paths.filter { it.isNotBlank() && File(it).isDirectory }
+            .map { Folder(name = it.trimEnd('/').substringAfterLast('/'), path = it) }
+        if (folders.isNotEmpty()) update { it.copy(folders = folders) }
+    }
+
+    /** 点播当前视图中的曲目:把视图装载为队列并从 index 播放。 */
+    fun playFromView(index: Int) {
+        val s = state.value
+        playQueue(s.view, s.viewSource, index)
+    }
+
+    /** 会话侧(通知 seek 到指定曲目):按队列下标重播。 */
     fun playIndex(index: Int) {
         val s = state.value
-        if (index !in s.tracks.indices) return
-        val paths = s.tracks.map { it.path }.toTypedArray()
-        AudioBridge.setQueue(paths, index)
+        playQueue(s.tracks, s.queueSource, index)
+    }
+
+    /** 装载队列并播放(替换队列,从 index 开始)。 */
+    fun playQueue(tracks: List<Track>, source: String?, index: Int) {
+        if (index !in tracks.indices) return
+        AudioBridge.setQueue(tracks.map { it.path }.toTypedArray(), index)
+        update { it.copy(tracks = tracks, queueSource = source, currentIndex = -1) }
         AudioBridge.play()
+    }
+
+    /** 进程被杀后恢复队列(暂停态,来源为哨兵)。 */
+    fun restoreQueue(tracks: List<Track>, index: Int) {
+        AudioBridge.setQueue(tracks.map { it.path }.toTypedArray(), index)
+        update { it.copy(tracks = tracks, queueSource = BusState.RESTORED, currentIndex = -1) }
     }
 
     /** 设置循环模式(同时下发引擎并更新状态)。 */
@@ -111,7 +177,7 @@ object PlayerBus {
         AudioBridge.setVolume(effective)
     }
 
-    // ---- 持久化(路径 + 标题 + 当前下标;恢复时校验文件仍可读) ----
+    // ---- 队列持久化(路径 + 标题 + 当前下标;恢复时校验文件仍可读) ----
 
     fun persist(context: Context) {
         val s = state.value

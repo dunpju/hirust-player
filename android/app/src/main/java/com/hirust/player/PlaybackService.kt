@@ -57,6 +57,7 @@ class PlaybackService : MediaSessionService() {
         // 注入上下文(设置读取)+ 触发 AudioBridge 初始化(加载 .so + engineStart)。
         AudioBridge.init(this)
         AudioBridge.version()
+        PlayerBus.restoreFolders(applicationContext)
 
         ContextCompat.registerReceiver(
             this,
@@ -136,11 +137,7 @@ class PlaybackService : MediaSessionService() {
         if (PlayerBus.state.value.tracks.isNotEmpty()) return
         val restored = PlayerBus.restore(applicationContext)
         if (restored.isEmpty()) return
-        PlayerBus.setTracks(restored)
-        AudioBridge.setQueue(
-            restored.map { it.path }.toTypedArray(),
-            PlayerBus.savedIndex,
-        )
+        PlayerBus.restoreQueue(restored, PlayerBus.savedIndex)
     }
 
     // ---- 音频焦点(分级:永久丢失暂停 / 瞬时丢失可恢复 / 可压低降音量) ----

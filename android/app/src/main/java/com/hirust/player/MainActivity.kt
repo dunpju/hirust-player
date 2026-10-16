@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -35,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberScrollState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +92,10 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants -> if (grants.values.any { it }) vm.scan() }
 
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let(vm::addFolder) }
+
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -125,6 +132,13 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
                 OutlinedButton(onClick = { showSettings = true }) { Text("⚙") }
             }
         }
+
+        PlaylistChips(
+            folders = ui.folders,
+            viewSource = ui.viewSource,
+            onPick = vm::openFolder,
+            onAdd = { folderPicker.launch(null) },
+        )
 
         NowPlaying(track = ui.tracks.getOrNull(ui.currentIndex))
 
@@ -180,8 +194,9 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         }
 
         TrackList(
-            tracks = ui.tracks,
+            tracks = ui.view,
             currentIndex = ui.currentIndex,
+            highlightEnabled = ui.viewSource == ui.queueSource,
             playing = ui.playing,
             onPick = vm::playAt,
             modifier = Modifier.weight(1f),
@@ -190,6 +205,40 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
 
     if (showSettings) {
         SettingsDialog(onDismiss = { showSettings = false }, onRescan = vm::scan)
+    }
+}
+
+/** 播放列表切换条:「全部音乐」+ 各文件夹(目录即列表)+ 添加入口。 */
+@Composable
+private fun PlaylistChips(
+    folders: List<Folder>,
+    viewSource: String?,
+    onPick: (Folder?) -> Unit,
+    onAdd: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = viewSource == null,
+            onClick = { onPick(null) },
+            label = { Text("全部音乐") },
+        )
+        folders.forEach { folder ->
+            FilterChip(
+                selected = viewSource == folder.path,
+                onClick = { onPick(folder) },
+                label = { Text(folder.name, maxLines = 1) },
+            )
+        }
+        FilterChip(
+            selected = false,
+            onClick = onAdd,
+            label = { Text("＋ 文件夹") },
+        )
     }
 }
 
@@ -280,15 +329,16 @@ private fun NowPlaying(track: Track?) {
 private fun TrackList(
     tracks: List<Track>,
     currentIndex: Int,
+    highlightEnabled: Boolean,
     playing: Boolean,
     onPick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (tracks.isEmpty()) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("曲库为空", style = MaterialTheme.typography.titleMedium)
+            Text("列表为空", style = MaterialTheme.typography.titleMedium)
             Text(
-                "授予音频权限后将自动扫描设备音乐库",
+                "授予音频权限自动扫描曲库,或点「＋ 文件夹」把一个目录加为播放列表",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -296,7 +346,7 @@ private fun TrackList(
     }
     LazyColumn(modifier = modifier) {
         itemsIndexed(tracks, key = { _, t -> t.path }) { index, track ->
-            val current = index == currentIndex
+            val current = highlightEnabled && index == currentIndex
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

@@ -15,13 +15,13 @@ android {
 
         // 版本自动化:CI 传 -PVERSION_NAME=v1.2.3 时按 tag 计算,否则用手动默认值。
         val tagVersion = (findProperty("VERSION_NAME") as String?)?.removePrefix("v")
-        versionName = tagVersion ?: "0.6.0"
+        versionName = tagVersion ?: "0.7.0"
         versionCode = tagVersion
             ?.split('.')
             ?.take(3)
             ?.map { it.toIntOrNull() ?: 0 }
             ?.let { (it.getOrElse(0) { 0 }) * 10000 + (it.getOrElse(1) { 0 }) * 100 + (it.getOrElse(2) { 0 }) }
-            ?: 6
+            ?: 7
 
         // 与 rust/Cargo.toml 的 Android 目标保持一致(模拟器为 x86_64)
         ndk {

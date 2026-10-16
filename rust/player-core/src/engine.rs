@@ -224,6 +224,7 @@ fn run(
         last_pos_emit: None,
         volume: 1.0,
         scratch: Vec::new(),
+        open_failures: 0,
     };
 
     'outer: loop {
@@ -269,6 +270,8 @@ struct Worker {
     volume: f32,
     /// 音量缩放复用缓冲(非 1.0 时启用)。
     scratch: Vec<f32>,
+    /// 连续打开失败的曲目数(成功清零;达队列长度则结束队列)。
+    open_failures: usize,
 }
 
 impl Worker {
@@ -404,6 +407,7 @@ impl Worker {
                         self.emit_error(etx, format!("挂起输出失败: {e}"));
                     }
                 }
+                self.open_failures = 0;
                 self.decoder = Some(dec);
                 shared
                     .duration_ms
@@ -413,10 +417,25 @@ impl Worker {
                 let _ = etx.send(EngineEvent::TrackStarted { index });
                 true
             }
+            // 打开失败(损坏/不可读/不支持):发错误事件后跳下一首,
+            // 而不是停掉整个队列——文件夹播放列表常混有零星坏文件。
+            // 连续失败达到队列长度则视为全军覆没,结束队列(防循环模式死循环)。
             Err(e) => {
                 self.emit_error(etx, e.to_string());
-                self.set_state(PlayState::Stopped, etx, shared);
-                false
+                self.open_failures += 1;
+                if self.open_failures >= self.queue.len().max(1) {
+                    self.stop_current(etx, shared);
+                    let _ = etx.send(EngineEvent::QueueEnded);
+                    return false;
+                }
+                match self.queue.next(false) {
+                    Some(_) => self.open_current(autoplay, etx, shared),
+                    None => {
+                        self.stop_current(etx, shared);
+                        let _ = etx.send(EngineEvent::QueueEnded);
+                        false
+                    }
+                }
             }
         }
     }

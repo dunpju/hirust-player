@@ -289,3 +289,40 @@ fn volume_scales_output_samples() {
     );
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn bad_files_are_skipped_to_good_one() {
+    let good = temp_wav("eng8");
+    write_sine_wav(&good, 44_100, 100);
+    let bad = std::path::PathBuf::from(format!("{}.missing.wav", good.display()));
+
+    let (mock, _sink) = MockOutput::new(false);
+    let engine = Engine::new(Box::new(mock));
+    engine.set_queue(vec![bad.clone(), good.clone(), bad], Some(0));
+    engine.play();
+
+    // 坏→好→坏:好文件应照常播放(TrackStarted{1})并最终正常结束队列。
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 1 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert!(wait_event(&engine, is_queue_ended, Duration::from_secs(5)).is_some());
+    let _ = std::fs::remove_file(&good);
+}
+
+#[test]
+fn all_bad_queue_ends_without_playing() {
+    let bad = std::path::PathBuf::from("/nonexistent/a.wav");
+    let bad2 = std::path::PathBuf::from("/nonexistent/b.wav");
+
+    let (mock, _sink) = MockOutput::new(false);
+    let engine = Engine::new(Box::new(mock));
+    engine.set_queue(vec![bad, bad2], Some(0));
+    engine.play();
+
+    // 全部打不开:不发 TrackStarted,直接结束队列。
+    assert!(wait_event(&engine, is_queue_ended, Duration::from_secs(5)).is_some());
+    assert_eq!(engine.state(), PlayState::Stopped);
+}

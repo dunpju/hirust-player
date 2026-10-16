@@ -212,7 +212,7 @@ adb logcat -s hirust
 - [x] 验收:monkey 1 小时无崩溃;耳机拔出即停;通知类 App(导航/助手)播放时正确压低或暂停并恢复 ✅(2026-10-16 真机通过)
 - 备注:语言切换(需 appcompat + 全量字符串抽取)与扫描目录白名单推迟到 M6 后;i18n 前先完成 strings.xml 迁移
 
-### M6 发布 🔶(2026-10-16 代码完成,待验收)
+### M6 发布 🔶(2026-10-16 APK 验收通过;tag 发布待执行)
 
 - [x] release.yml:推 tag `v*` 触发 → 签名(Secrets:HIRUST_KEYSTORE_B64/PASSWORD/ALIAS/KEY_PASSWORD;缺失时自动退 debug 签名)→ `assembleRelease` → GitHub Releases 附 APK(自动生成 release notes)
 - [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
@@ -221,6 +221,18 @@ adb logcat -s hirust
 - [ ] 配置 Secrets 后推 tag,Release 页出现签名 APK(待执行,步骤见 README「发布」;未配 Secrets 时推 tag 会以 debug 签名出包)
 - 补充(M6 后):应用图标落地(adaptive icon,26+ 蒙版自适应;24/25 layer-list 兜底;全 XML 无 PNG);CI 修复见 M0 修正记录
 - 密钥生成与 Secrets 配置步骤见 README「发布」
+
+### M6 后迭代
+
+#### 文件夹播放列表(0.7.0,2026-10-16)🔶 待真机验收
+
+- 需求:选择手机指定目录下的音频播放;**一个目录 = 一个播放列表**
+- [x] SAF `OpenDocumentTree` 选目录 → 解析为真实路径(externalstorage 主/副卷;其他 provider 提示不支持)
+- [x] 目录列表 = 文件系统枚举(扩展名过滤、按名排序)+ MediaStore 路径前缀查询合并元数据;未入库文件经 Rust `trackInfo` 补全标题/艺人/时长
+- [x] 队列(tracks)与视图(view)分离:切列表不打断播放;`viewSource==queueSource` 才高亮当前曲目(恢复场景用哨兵避免错误高亮)
+- [x] 文件夹列表持久化,重启自动恢复;chips 切换「全部音乐 / 各文件夹 / ＋添加」
+- [x] 引擎鲁棒性:打开失败的曲目自动跳下一首(原为停掉整队);连续失败达队列长度才结束队列(防循环模式死循环);+2 桌面测试
+- [ ] 验收:添加含 mp3/flac 的目录 → 列表正确、元数据完整;播放中切到其他列表不打断;混入损坏文件自动跳过;重启后文件夹仍在
 
 ## 10. CI(GitHub Actions)
 
