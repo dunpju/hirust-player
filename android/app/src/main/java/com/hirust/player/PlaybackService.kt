@@ -89,14 +89,20 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onTrackStarted(index: Int) {
-                PlayerBus.update { it.copy(currentIndex = index, positionMs = 0) }
+                // 引擎先写入时长再发本事件,此刻查询即当前曲目时长(UI 进度条依赖)。
+                val duration = AudioBridge.durationMs()
+                PlayerBus.update {
+                    it.copy(currentIndex = index, positionMs = 0, durationMs = duration)
+                }
                 PlayerBus.persist(this@PlaybackService)
             }
 
             override fun onTrackEnded(index: Int) = Unit
 
             override fun onQueueEnded() {
-                PlayerBus.update { it.copy(playing = false, positionMs = 0, currentIndex = -1) }
+                PlayerBus.update {
+                    it.copy(playing = false, positionMs = 0, durationMs = 0, currentIndex = -1)
+                }
                 abandonFocus()
             }
 
