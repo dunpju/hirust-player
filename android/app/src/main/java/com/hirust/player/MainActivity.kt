@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.hirust.player.audio.AudioBridge
 import com.hirust.player.audio.RepeatModes
+import com.hirust.player.ui.HiRustTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -53,7 +56,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         startService(Intent(this, PlaybackService::class.java))
         setContent {
-            MaterialTheme {
+            HiRustTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     PlayerScreen()
                 }
@@ -79,6 +82,7 @@ private fun audioPermissions(): Array<String> {
 @Composable
 private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
     val ui by vm.state.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -112,10 +116,13 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("HiRust Player", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "v${AudioBridge.version()}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "v${AudioBridge.version()}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = { showSettings = true }) { Text("⚙") }
+            }
         }
 
         NowPlaying(track = ui.tracks.getOrNull(ui.currentIndex))
@@ -179,6 +186,54 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             modifier = Modifier.weight(1f),
         )
     }
+
+    if (showSettings) {
+        SettingsDialog(onDismiss = { showSettings = false }, onRescan = vm::scan)
+    }
+}
+
+/** 设置弹窗:输出缓冲(下一首生效)+ 短曲过滤(保存后立即重扫)。 */
+@Composable
+private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
+    val context = LocalContext.current
+    var bufferMs by remember { mutableStateOf(Settings.bufferMs(context)) }
+    var minDurationSec by remember { mutableStateOf(Settings.minDurationSec(context)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                Settings.setBufferMs(context, bufferMs)
+                val durationChanged = minDurationSec != Settings.minDurationSec(context)
+                Settings.setMinDurationSec(context, minDurationSec)
+                if (durationChanged) onRescan()
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        title = { Text("设置") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("输出缓冲:${bufferMs} ms(下一首生效)")
+                Slider(
+                    value = bufferMs.toFloat(),
+                    onValueChange = { bufferMs = it.toInt() },
+                    valueRange = 200f..1000f,
+                    steps = 7,
+                )
+                Text("忽略短于 ${minDurationSec} 秒的音频(保存后重扫)")
+                Slider(
+                    value = minDurationSec.toFloat(),
+                    onValueChange = { minDurationSec = it.toInt() },
+                    valueRange = 0f..60f,
+                )
+                Text(
+                    "深浅色跟随系统;Android 12+ 自动动态取色。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+    )
 }
 
 /** 正在播放条:封面(内嵌封面优先,MediaStore 专辑封面兜底)+ 标题/艺人。 */

@@ -34,6 +34,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             val tracks = mutableListOf<Track>()
+            val minDurationMs = Settings.minDurationSec(ctx) * 1000L
             runCatching {
                 ctx.contentResolver.query(
                     collection,
@@ -45,7 +46,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                         MediaStore.Audio.Media.DATA,
                         MediaStore.Audio.Media.ALBUM_ID,
                     ),
-                    "${MediaStore.Audio.Media.DURATION} >= 10000",
+                    "${MediaStore.Audio.Media.DURATION} >= $minDurationMs",
                     null,
                     "${MediaStore.Audio.Media.TITLE} ASC",
                 )?.use { cursor ->

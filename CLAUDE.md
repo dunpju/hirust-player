@@ -20,7 +20,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | 🔶 代码完成,待真机验收 |
 | M3 | 播放列表 + 后台播放(MediaSession) | 🔶 代码完成,待真机验收 |
 | M4 | 元数据/封面/seek/播放模式 | 🔶 代码完成,待真机验收 |
-| M5 | 主题/设置/焦点与耳机体验打磨 | ⬜ |
+| M5 | 主题/设置/焦点与耳机体验打磨 | 🔶 代码完成,待真机验收 |
 | M6 | 签名发布 + GitHub Releases | ⬜ |
 
 ## 3. 架构总览
@@ -92,7 +92,9 @@ hirust-player/
          │  ├─ PlayerViewModel.kt     # MediaStore 扫描 + 命令透传
          │  ├─ PlaybackService.kt     # MediaSessionService + 焦点 + 事件分发
          │  ├─ EnginePlayer.kt        # SimpleBasePlayer 包装 AudioBridge
-         │  ├─ PlayerBus.kt           # 全局状态总线 + 队列持久化/恢复
+         │  ├─ PlayerBus.kt           # 全局状态总线 + 队列持久化/恢复 + ducking
+         │  ├─ Settings.kt            # 应用设置(缓冲/短曲阈值)
+         │  ├─ ui/Theme.kt            # 深浅色 + Material You 动态取色
          │  └─ audio/AudioBridge.kt   # JNI 唯一入口 + AudioTrack 宿主
          └─ jniLibs/             # 生成物,不入库
 ```
@@ -200,12 +202,14 @@ adb logcat -s hirust
 - [ ] 验收:seek 误差 <200ms;列表显示标题/艺人/封面;音量即时生效
 - 备注:ReplayGain/淡入淡出继续搁置(M5+ 再评估);恢复场景列表元数据来自上次扫描持久化
 
-### M5 体验打磨
+### M5 体验打磨 🔶(2026-10-16 代码完成,待真机验收)
 
-- [ ] 深色主题 + Material You 动态取色
-- [ ] 设置页(输出缓冲、扫描目录、语言)
-- [ ] 耳机拔出暂停、焦点 ducking、蓝牙设备切换
-- 验收:monkey 测试 1 小时无崩溃
+- [x] 深色主题(values/values-night 双主题)+ Material You 动态取色(API 31+,ui/Theme.kt)
+- [x] 设置:输出缓冲 ms(下一首生效)、忽略短音频阈值(保存即重扫);SharedPreferences(Settings.kt)
+- [x] 耳机/蓝牙断开暂停(AUDIO_BECOMING_NOISY 广播)
+- [x] 焦点分级:永久丢失暂停 / 瞬时丢失暂停且恢复时续播 / CAN_DUCK 压至 20% 音量(PlayerBus.setDucked,用户音量不受污染)
+- [ ] 验收:monkey 1 小时无崩溃;耳机拔出即停;通知类 App(导航/助手)播放时正确压低或暂停并恢复
+- 备注:语言切换(需 appcompat + 全量字符串抽取)与扫描目录白名单推迟到 M6 后;i18n 前先完成 strings.xml 迁移
 
 ### M6 发布
 

@@ -1,12 +1,15 @@
 package com.hirust.player
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -32,6 +35,16 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var enginePlayer: EnginePlayer? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var resumeOnFocusGain = false
+
+    /** 耳机/蓝牙断开(AUDIO_BECOMING_NOISY)→ 暂停,避免外放。 */
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                AudioBridge.pause()
+            }
+        }
+    }
 
     private val audioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -41,8 +54,16 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        // 触发 AudioBridge 初始化(加载 .so + engineStart),进程内只发生一次。
+        // 注入上下文(设置读取)+ 触发 AudioBridge 初始化(加载 .so + engineStart)。
+        AudioBridge.init(this)
         AudioBridge.version()
+
+        ContextCompat.registerReceiver(
+            this,
+            noisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         restoreQueueIfNeeded()
 
@@ -101,6 +122,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         serviceScope.cancel()
+        runCatching { unregisterReceiver(noisyReceiver) }
         AudioBridge.listener = null
         mediaSession?.release()
         mediaSession = null
@@ -120,7 +142,29 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    // ---- 音频焦点(永久丢失即暂停;暂停/停止时放弃) ----
+    // ---- 音频焦点(分级:永久丢失暂停 / 瞬时丢失可恢复 / 可压低降音量) ----
+
+    private fun onFocusChange(change: Int) {
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnFocusGain = false
+                PlayerBus.setDucked(false)
+                AudioBridge.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                resumeOnFocusGain = true
+                AudioBridge.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> PlayerBus.setDucked(true)
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                PlayerBus.setDucked(false)
+                if (resumeOnFocusGain) {
+                    resumeOnFocusGain = false
+                    AudioBridge.play()
+                }
+            }
+        }
+    }
 
     private fun ensureFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -132,17 +176,13 @@ class PlaybackService : MediaSessionService() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
-                .setOnAudioFocusChangeListener { change ->
-                    if (change == AudioManager.AUDIOFOCUS_LOSS) AudioBridge.pause()
-                }
+                .setOnAudioFocusChangeListener { change -> onFocusChange(change) }
                 .build()
             focusRequest = request
             audioManager.requestAudioFocus(request)
         } else {
             if (legacyFocusListener != null) return
-            val listener = AudioManager.OnAudioFocusChangeListener { change ->
-                if (change == AudioManager.AUDIOFOCUS_LOSS) AudioBridge.pause()
-            }
+            val listener = AudioManager.OnAudioFocusChangeListener { change -> onFocusChange(change) }
             legacyFocusListener = listener
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(

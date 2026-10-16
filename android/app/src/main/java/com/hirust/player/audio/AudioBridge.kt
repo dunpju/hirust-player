@@ -1,8 +1,10 @@
 package com.hirust.player.audio
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import com.hirust.player.Settings
 
 /** 播放状态常量(Rust `PlayState` 的 JNI 映射)。 */
 object PlayStates {
@@ -45,6 +47,15 @@ object AudioBridge {
     /** UI 注册的全局事件监听(事件泵线程调用)。 */
     @Volatile
     var listener: EngineListener? = null
+
+    /** 应用上下文(PlaybackService onCreate 注入,用于读取设置)。 */
+    @Volatile
+    private var appContext: Context? = null
+
+    /** 注入应用上下文;在 engineStart 之前调用。 */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
 
     init {
         System.loadLibrary("player_jni")
@@ -121,8 +132,10 @@ object AudioBridge {
         val minBuf =
             AudioTrack.getMinBufferSize(sampleRate, channelMask, AudioFormat.ENCODING_PCM_FLOAT)
         if (minBuf <= 0) return false
-        // 缓冲约 0.5 秒:折中起播延迟与欠载风险。
-        val bufferBytes = maxOf(minBuf * 2, sampleRate * channels * 2)
+        // 缓冲时长可配置(Settings.bufferMs,下一曲目生效);f32 每帧 = 声道数 × 4 字节。
+        val bufferMs = appContext?.let { Settings.bufferMs(it) } ?: Settings.DEFAULT_BUFFER_MS
+        val bufferBytes =
+            maxOf(minBuf * 2, sampleRate * channels * 4 * bufferMs / 1000)
         val built = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()

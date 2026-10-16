@@ -89,11 +89,26 @@ object PlayerBus {
 
     fun toggleShuffle() = setShuffle(!state.value.shuffle)
 
-    /** 设置音量 [0,1]。 */
+    /** 设置音量 [0,1](用户音量;引擎实际音量 = 用户音量 × duck 系数)。 */
     fun setVolume(volume: Float) {
         val v = volume.coerceIn(0f, 1f)
-        AudioBridge.setVolume(v)
         update { it.copy(volume = v) }
+        applyEngineVolume()
+    }
+
+    /** 焦点压低(ducker):瞬时压到用户音量的 20%。 */
+    fun setDucked(on: Boolean) {
+        if (ducked == on) return
+        ducked = on
+        applyEngineVolume()
+    }
+
+    private var ducked = false
+
+    private fun applyEngineVolume() {
+        val user = state.value.volume
+        val effective = if (ducked) user * 0.2f else user
+        AudioBridge.setVolume(effective)
     }
 
     // ---- 持久化(路径 + 标题 + 当前下标;恢复时校验文件仍可读) ----
