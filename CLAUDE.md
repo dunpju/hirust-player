@@ -165,7 +165,7 @@ adb logcat -s hirust
 - [x] Android 壳工程:Compose 页面显示 Rust 引擎版本(验证 .so 加载)
 - [x] GitHub Actions:rust-check + android-build 产出 debug APK artifact
 - 验收:CI 绿;APK 安装后显示「Rust 引擎版本:0.1.0」
-- ⚠️ 修正(2026-10-16 M6 后复查):M0–M6 期间 **CI 实际全部失败**(android-build 的 `setup-android@v3` step 持续报错,APK 从未产出;rust-check 的 test 在 Linux 慢速 runner 上因固定 sleep 断言不稳)。当日已修复:移除 setup-android 改用镜像自带 sdkmanager;时序断言改为条件等待。此前"CI 绿"的表述不实,以 Actions 页实际结果为准。
+- ⚠️ 修正(2026-10-16 M6 后复查):M0–M6 期间 **CI 实际全部失败**(android-build 的 `setup-android@v3` step 持续报错,APK 从未产出;rust-check 的 test 在 Linux 慢速 runner 上因固定 sleep 断言不稳)。当日已修复:移除 setup-android 改用镜像自带 sdkmanager;时序断言改为条件等待。此前"CI 绿"的表述不实,以 Actions 页实际结果为准。**CI 于 `a56a05e` 首次全绿**,首个可下载 APK 产出。
 
 ### M1 Rust 引擎核心(player-core,桌面可测)✅(2026-10-16)
 
@@ -218,6 +218,7 @@ adb logcat -s hirust
 - [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
 - [x] 格式评估(实证):symphonia 0.5.5 无 opus/ape/wavpack;且默认 feature 不含 mp3/aac → 已显式开启 mp3/aac/isomp4/opt-simd(修复 M0 以来的隐性缺口)
 - [ ] 验收:配置 Secrets 后推 tag,Release 页出现可安装 APK;R8 后真机回归(JNI 加载、播放、封面)
+- 补充(M6 后):应用图标落地(adaptive icon,26+ 蒙版自适应;24/25 layer-list 兜底;全 XML 无 PNG);CI 修复见 M0 修正记录
 - 密钥生成与 Secrets 配置步骤见 README「发布」
 
 ## 10. CI(GitHub Actions)

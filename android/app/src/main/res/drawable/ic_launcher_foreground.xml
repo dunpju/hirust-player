@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动图标前景:白色播放三角 + 橙色声波条(108dp 画布,内容位于中心 ~66dp 安全区) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 播放三角 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M40,37 L40,71 L68,54 Z" />
+    <!-- 声波条 -->
+    <path
+        android:fillColor="#FFFF7A59"
+        android:pathData="M76,44 L82,44 L82,64 L76,64 Z" />
+</vector>
