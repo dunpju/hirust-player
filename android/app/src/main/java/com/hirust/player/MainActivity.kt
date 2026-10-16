@@ -148,16 +148,23 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             onSeek = vm::seekTo,
         )
 
+        // 播放三键独立一行,避免窄屏挤压(此前 5 键一行,末尾按钮被压成竖椭圆)。
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
             OutlinedButton(onClick = vm::prev) { Text("⏮") }
             Button(onClick = { if (ui.playing) vm.pause() else vm.play() }) {
                 Text(if (ui.playing) "⏸ 暂停" else "▶ 播放")
             }
             OutlinedButton(onClick = vm::next) { Text("⏭") }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             OutlinedButton(onClick = vm::toggleRepeat) {
                 Text(
                     when (ui.repeatMode) {
@@ -170,13 +177,6 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             OutlinedButton(onClick = vm::toggleShuffle) {
                 Text(if (ui.shuffle) "随机·开" else "随机·关")
             }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
             Text("音量", style = MaterialTheme.typography.bodySmall)
             Slider(
                 value = ui.volume,
