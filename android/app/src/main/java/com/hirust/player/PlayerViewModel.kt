@@ -196,7 +196,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun prev() = AudioBridge.prev()
 
-    fun seekTo(ms: Long) = AudioBridge.seekMs(ms)
+    fun seekTo(ms: Long) = PlayerBus.seekTo(ms)
 
     /** 点播当前视图中的曲目。 */
     fun playAt(index: Int) = PlayerBus.playFromView(index)

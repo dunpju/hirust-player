@@ -93,7 +93,7 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
                 if (mediaItemIndex != PlayerBus.state.value.currentIndex) {
                     PlayerBus.playIndex(mediaItemIndex)
                 } else {
-                    AudioBridge.seekMs(positionMs)
+                    PlayerBus.seekTo(positionMs)
                 }
             }
         }

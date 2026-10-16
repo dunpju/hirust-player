@@ -395,6 +395,8 @@ private fun SeekBar(
     } else {
         0f
     }
+    // 拖动中时间文本跟随手指;松手后由 PlayerBus 乐观更新接管(引擎事件随后校正)。
+    val shownMs = if (dragging && durationMs > 0) (dragValue * durationMs).toLong() else positionMs
 
     Column {
         Slider(
@@ -410,7 +412,7 @@ private fun SeekBar(
             enabled = durationMs > 0,
         )
         Text(
-            text = "${formatMs(positionMs)} / ${formatMs(durationMs)}",
+            text = "${formatMs(shownMs)} / ${formatMs(durationMs)}",
             style = MaterialTheme.typography.bodySmall,
         )
     }

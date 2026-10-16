@@ -155,6 +155,13 @@ object PlayerBus {
 
     fun toggleShuffle() = setShuffle(!state.value.shuffle)
 
+    /** seek 并乐观更新位置(引擎处理完会立即发精确位置事件校正)。 */
+    fun seekTo(ms: Long) {
+        val target = ms.coerceAtLeast(0)
+        AudioBridge.seekMs(target)
+        update { it.copy(positionMs = target) }
+    }
+
     /** 设置音量 [0,1](用户音量;引擎实际音量 = 用户音量 × duck 系数)。 */
     fun setVolume(volume: Float) {
         val v = volume.coerceIn(0f, 1f)
