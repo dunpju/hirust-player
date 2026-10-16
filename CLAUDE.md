@@ -165,6 +165,7 @@ adb logcat -s hirust
 - [x] Android 壳工程:Compose 页面显示 Rust 引擎版本(验证 .so 加载)
 - [x] GitHub Actions:rust-check + android-build 产出 debug APK artifact
 - 验收:CI 绿;APK 安装后显示「Rust 引擎版本:0.1.0」
+- ⚠️ 修正(2026-10-16 M6 后复查):M0–M6 期间 **CI 实际全部失败**(android-build 的 `setup-android@v3` step 持续报错,APK 从未产出;rust-check 的 test 在 Linux 慢速 runner 上因固定 sleep 断言不稳)。当日已修复:移除 setup-android 改用镜像自带 sdkmanager;时序断言改为条件等待。此前"CI 绿"的表述不实,以 Actions 页实际结果为准。
 
 ### M1 Rust 引擎核心(player-core,桌面可测)✅(2026-10-16)
 
@@ -225,8 +226,8 @@ adb logcat -s hirust
 
 | Job | 内容 |
 |---|---|
-| rust-check | `cargo fmt --check` + `clippy -D warnings` + `test`(ubuntu 宿主) |
-| android-build | 安装稳定版 NDK(26–28 系列)→ cargo-ndk 编译 3 个 ABI → `gradle :app:assembleDebug` → 上传 artifact `hirust-player-debug-apk` |
+| rust-check | `cargo fmt --check` + `clippy -D warnings` + `test`(ubuntu 宿主;时序类测试用条件等待,不依赖墙钟) |
+| android-build | 用镜像自带 sdkmanager 安装稳定版 NDK(26–28 系列;**不使用 `setup-android` action**,实测持续失败)→ cargo-ndk 编译 3 个 ABI → `gradle :app:assembleDebug` → 上传 artifact `hirust-player-debug-apk` |
 
 注意:
 

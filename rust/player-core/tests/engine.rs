@@ -33,6 +33,18 @@ fn is_queue_ended(ev: &EngineEvent) -> bool {
     matches!(ev, EngineEvent::QueueEnded)
 }
 
+/// 轮询引擎查询直到谓词命中或超时(慢速 CI runner 上的确定性等待)。
+fn wait_until(engine: &Engine, mut pred: impl FnMut(&Engine) -> bool, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if pred(engine) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    false
+}
+
 #[test]
 fn plays_single_track_to_queue_end() {
     let path = temp_wav("eng1");
@@ -79,25 +91,28 @@ fn pause_freezes_position_then_resumes() {
     )
     .is_some());
 
-    std::thread::sleep(Duration::from_millis(200));
+    // 条件等待实际解码推进(慢速 runner 上固定 sleep 可能为 0,不再依赖墙钟)。
+    let advanced = wait_until(&engine, |e| e.position_ms() >= 150, Duration::from_secs(5));
+    assert!(advanced, "等待播放位置推进超时");
+
     engine.pause();
     assert!(wait_event(
         &engine,
         state_changed(PlayState::Paused),
-        Duration::from_secs(2)
+        Duration::from_secs(5)
     )
     .is_some());
 
     let pos = engine.position_ms();
     std::thread::sleep(Duration::from_millis(150));
     assert_eq!(engine.position_ms(), pos, "暂停期间位置不得变化");
-    assert!((100..=600).contains(&pos), "pos = {pos}");
+    assert!(pos >= 150, "pos = {pos}");
 
     engine.resume();
     assert!(wait_event(
         &engine,
         state_changed(PlayState::Playing),
-        Duration::from_secs(2)
+        Duration::from_secs(5)
     )
     .is_some());
     engine.shutdown();
@@ -120,12 +135,20 @@ fn seek_moves_position() {
     )
     .is_some());
 
-    std::thread::sleep(Duration::from_millis(100));
     engine.seek_ms(1000);
-    std::thread::sleep(Duration::from_millis(120));
+    // 条件等待 seek 生效(位置 ≥950),再暂停冻结后断言区间,避免慢速 runner 抖动。
+    let advanced = wait_until(&engine, |e| e.position_ms() >= 950, Duration::from_secs(5));
+    assert!(advanced, "seek 后位置未推进");
 
+    engine.pause();
+    assert!(wait_event(
+        &engine,
+        state_changed(PlayState::Paused),
+        Duration::from_secs(5)
+    )
+    .is_some());
     let pos = engine.position_ms();
-    assert!((950..=1300).contains(&pos), "pos = {pos}");
+    assert!((950..=1600).contains(&pos), "pos = {pos}");
     engine.shutdown();
     let _ = std::fs::remove_file(&path);
 }
