@@ -113,8 +113,9 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
-    /** 播放中被划掉任务不停止(M3:后台连播);空闲时划掉则退出服务。 */
-    override fun onTaskRemoved(rootIntent: Intent) {
+    /** 播放中被划掉任务不停止(M3:后台连播);空闲时划掉则退出服务。
+     *  media3 1.5.1 该方法参数标注 @Nullable,必须以可空签名覆盖(javap 不可见注解,以实测为准)。 */
+    override fun onTaskRemoved(rootIntent: Intent?) {
         if (!PlayerBus.state.value.playing) {
             stopSelf()
         }
