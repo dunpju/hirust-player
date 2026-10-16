@@ -1,0 +1,21 @@
+# Rust
+rust/target/
+rust/**/target/
+
+# Android(Gradle / Android Studio 生成物)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

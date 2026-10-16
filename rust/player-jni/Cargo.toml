@@ -1,0 +1,13 @@
+[package]
+name = "player-jni"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "player_jni"
+crate-type = ["cdylib"]
+
+[dependencies]
+player-core = { path = "../player-core" }
+jni.workspace = true
