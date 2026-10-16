@@ -1,7 +1,7 @@
 package com.hirust.player
 
+import android.content.ContentUris
 import android.content.Context
-import android.net.ContentUris
 import android.net.Uri
 import com.hirust.player.audio.AudioBridge
 import kotlinx.coroutines.flow.MutableStateFlow

@@ -16,6 +16,9 @@ import com.hirust.player.audio.AudioBridge
  * 仅实现控制面:命令转 `AudioBridge`,状态由 PlaybackService 收到引擎事件后
  * 调用 [onExternalStateChanged] 触发重建。Player.REPEAT_MODE_* 与
  * AudioBridge 的 RepeatModes 数值一致(0/1/2)。
+ *
+ * API 以 media3 **1.5.1** 实测为准(State.Builder / MediaItemData /
+ * handleSetPlayWhenReady(Boolean) / handleSeek 三参)。
  */
 @UnstableApi
 class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
@@ -29,7 +32,13 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
     override fun getState(): State {
         val s = PlayerBus.state.value
-        val playlist = s.tracks.map { PlaylistItem(it.asMediaItem()) }
+        val playlist = s.tracks.map { t ->
+            SimpleBasePlayer.MediaItemData.Builder(t.path)
+                .setMediaItem(t.asMediaItem())
+                .setDurationUs(t.durationMs * 1000)
+                .setIsSeekable(t.durationMs > 0)
+                .build()
+        }
         val index = if (s.currentIndex in playlist.indices) s.currentIndex else 0
 
         val commands = Player.Commands.Builder()
@@ -43,17 +52,16 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             .add(Player.COMMAND_SEEK_TO_PREVIOUS)
             .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
             .add(Player.COMMAND_SET_REPEAT_MODE)
-            .add(Player.COMMAND_SET_SHUFFLE_MODE_ENABLED)
+            .add(Player.COMMAND_SET_SHUFFLE_MODE)
             .build()
 
-        return StateBuilder()
+        return SimpleBasePlayer.State.Builder()
             .setAvailableCommands(commands)
             .setPlaybackState(if (playlist.isEmpty()) Player.STATE_IDLE else Player.STATE_READY)
             .setPlayWhenReady(playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setPlaylist(playlist)
             .setCurrentMediaItemIndex(index)
             .setContentPositionMs(AudioBridge.positionMs())
-            .setDurationMs(AudioBridge.durationMs())
             .setRepeatMode(s.repeatMode)
             .setShuffleModeEnabled(s.shuffle)
             .build()
@@ -61,7 +69,7 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
     override fun handlePrepare(): ListenableFuture<*> = Futures.immediateVoidFuture()
 
-    override fun handleSetPlayWhenReady(playWhenReady: Boolean, reason: Int): ListenableFuture<*> {
+    override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         this.playWhenReady = playWhenReady
         if (playWhenReady) AudioBridge.play() else AudioBridge.pause()
         return Futures.immediateVoidFuture()
@@ -71,7 +79,6 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
         mediaItemIndex: Int,
         positionMs: Long,
         seekCommand: Int,
-        isRepeatingCurrentItem: Boolean,
     ): ListenableFuture<*> {
         when (seekCommand) {
             Player.COMMAND_SEEK_TO_PREVIOUS,
