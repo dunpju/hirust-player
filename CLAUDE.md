@@ -17,11 +17,11 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 |---|---|---|
 | M0 | 骨架 + CI(可安装 APK,JNI 打通) | ✅ 2026-10-16 |
 | M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ✅ 2026-10-16 |
-| M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | 🔶 代码完成,待真机验收 |
-| M3 | 播放列表 + 后台播放(MediaSession) | 🔶 代码完成,待真机验收 |
-| M4 | 元数据/封面/seek/播放模式 | 🔶 代码完成,待真机验收 |
-| M5 | 主题/设置/焦点与耳机体验打磨 | 🔶 代码完成,待真机验收 |
-| M6 | 签名发布 + GitHub Releases | 🔶 代码完成,待验收(推 tag 验证) |
+| M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | ✅ 2026-10-16 真机验收通过 |
+| M3 | 播放列表 + 后台播放(MediaSession) | ✅ 2026-10-16 真机验收通过 |
+| M4 | 元数据/封面/seek/播放模式 | ✅ 2026-10-16 真机验收通过 |
+| M5 | 主题/设置/焦点与耳机体验打磨 | ✅ 2026-10-16 真机验收通过 |
+| M6 | 签名发布 + GitHub Releases | 🔶 APK 验收通过;待推 tag 出首个 Release |
 
 ## 3. 架构总览
 
@@ -183,7 +183,7 @@ adb logcat -s hirust
 - [x] android_logger(tag=hirust)+ panic hook,崩溃日志可读
 - [x] 最小播放页:SAF 多选文件(复制到私有缓存)、播放/暂停/切歌、进度拖动
 - [x] 音频焦点最简实现(永久丢失即暂停,API 26+ 用 AudioFocusRequest)
-- [ ] 验收:真机播 mp3/flac 无爆音;后台短时不断音(CI 出包后装机验证)
+- [x] 验收:真机播 mp3/flac 无爆音;后台短时不断音 ✅(2026-10-16 真机通过)
 
 ### M3 播放列表与后台播放 🔶(2026-10-16 代码完成,待真机验收)
 
@@ -191,7 +191,7 @@ adb logcat -s hirust
 - [x] Media3 MediaSessionService:通知/锁屏控制、耳机按键(EnginePlayer = SimpleBasePlayer 包装 AudioBridge,仅控制面)
 - [x] 前台服务(mediaPlayback 类型,media3 自动前台化);队列按路径持久化,进程被杀后恢复(暂停态)
 - [x] 音频焦点移交 PlaybackService;PlayerBus 单一状态源(UI 读 / 服务写)
-- [ ] 验收:锁屏可控制;后台连播 ≥30 分钟无中断;划掉任务后播放不中断
+- [x] 验收:锁屏可控制;后台连播 ≥30 分钟无中断;划掉任务后播放不中断 ✅(2026-10-16 真机通过)
 - 备注:恢复不还原播放位置(seek 需先打开解码器);曲目内进度由通知 seekbar 读取 positionMs
 
 ### M4 元数据与播放体验 🔶(2026-10-16 代码完成,待真机验收)
@@ -200,7 +200,7 @@ adb logcat -s hirust
 - [x] 封面:Rust `read_cover`(优先 FrontCover)→ JNI `trackCover(path)`;Kotlin CoverStore 磁盘缓存;列表/正在播放/通知封面(正在播放=内嵌优先、MediaStore albumart 兜底;列表=albumart)
 - [x] SeekBar 拖动 seek(M2 已做,实测节流 10Hz)
 - [x] 循环/随机切换 UI(PlayerBus 单一状态源,通知与 UI 双向一致)+ 音量滑条(引擎线程线性缩放,JNI `setVolume`)
-- [ ] 验收:seek 误差 <200ms;列表显示标题/艺人/封面;音量即时生效
+- [x] 验收:seek 误差 <200ms;列表显示标题/艺人/封面;音量即时生效 ✅(2026-10-16 真机通过)
 - 备注:ReplayGain/淡入淡出继续搁置(M5+ 再评估);恢复场景列表元数据来自上次扫描持久化
 
 ### M5 体验打磨 🔶(2026-10-16 代码完成,待真机验收)
@@ -209,7 +209,7 @@ adb logcat -s hirust
 - [x] 设置:输出缓冲 ms(下一首生效)、忽略短音频阈值(保存即重扫);SharedPreferences(Settings.kt)
 - [x] 耳机/蓝牙断开暂停(AUDIO_BECOMING_NOISY 广播)
 - [x] 焦点分级:永久丢失暂停 / 瞬时丢失暂停且恢复时续播 / CAN_DUCK 压至 20% 音量(PlayerBus.setDucked,用户音量不受污染)
-- [ ] 验收:monkey 1 小时无崩溃;耳机拔出即停;通知类 App(导航/助手)播放时正确压低或暂停并恢复
+- [x] 验收:monkey 1 小时无崩溃;耳机拔出即停;通知类 App(导航/助手)播放时正确压低或暂停并恢复 ✅(2026-10-16 真机通过)
 - 备注:语言切换(需 appcompat + 全量字符串抽取)与扫描目录白名单推迟到 M6 后;i18n 前先完成 strings.xml 迁移
 
 ### M6 发布 🔶(2026-10-16 代码完成,待验收)
@@ -217,7 +217,8 @@ adb logcat -s hirust
 - [x] release.yml:推 tag `v*` 触发 → 签名(Secrets:HIRUST_KEYSTORE_B64/PASSWORD/ALIAS/KEY_PASSWORD;缺失时自动退 debug 签名)→ `assembleRelease` → GitHub Releases 附 APK(自动生成 release notes)
 - [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
 - [x] 格式评估(实证):symphonia 0.5.5 无 opus/ape/wavpack;且默认 feature 不含 mp3/aac → 已显式开启 mp3/aac/isomp4/opt-simd(修复 M0 以来的隐性缺口)
-- [ ] 验收:配置 Secrets 后推 tag,Release 页出现可安装 APK;R8 后真机回归(JNI 加载、播放、封面)
+- [x] R8 后真机回归(JNI 加载、播放、封面)✅(2026-10-16 真机通过)
+- [ ] 配置 Secrets 后推 tag,Release 页出现签名 APK(待执行,步骤见 README「发布」;未配 Secrets 时推 tag 会以 debug 签名出包)
 - 补充(M6 后):应用图标落地(adaptive icon,26+ 蒙版自适应;24/25 layer-list 兜底;全 XML 无 PNG);CI 修复见 M0 修正记录
 - 密钥生成与 Secrets 配置步骤见 README「发布」
 
