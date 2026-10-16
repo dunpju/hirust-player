@@ -12,8 +12,16 @@ android {
         applicationId = "com.hirust.player"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+
+        // 版本自动化:CI 传 -PVERSION_NAME=v1.2.3 时按 tag 计算,否则用手动默认值。
+        val tagVersion = (findProperty("VERSION_NAME") as String?)?.removePrefix("v")
+        versionName = tagVersion ?: "0.6.0"
+        versionCode = tagVersion
+            ?.split('.')
+            ?.take(3)
+            ?.map { it.toIntOrNull() ?: 0 }
+            ?.let { (it.getOrElse(0) { 0 }) * 10000 + (it.getOrElse(1) { 0 }) * 100 + (it.getOrElse(2) { 0 }) }
+            ?: 6
 
         // 与 rust/Cargo.toml 的 Android 目标保持一致(模拟器为 x86_64)
         ndk {
@@ -21,10 +29,33 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            // CI 由 release.yml 注入以下环境变量;本地缺省时不配置(回退 debug 签名)。
+            val ksFile = System.getenv("HIRUST_KEYSTORE_FILE")
+            if (ksFile != null) {
+                storeFile = file(ksFile)
+                storePassword = System.getenv("HIRUST_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("HIRUST_KEY_ALIAS")
+                keyPassword = System.getenv("HIRUST_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // M6 再启用 R8(需 keep AudioBridge)
-            isMinifyEnabled = false
+            // R8 压缩/混淆(keep 规则见 proguard-rules.pro)
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = if (System.getenv("HIRUST_KEYSTORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                // 无密钥环境(本地)退化为 debug 签名,保证产物可安装。
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

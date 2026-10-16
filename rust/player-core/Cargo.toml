@@ -6,4 +6,6 @@ license.workspace = true
 
 [dependencies]
 thiserror.workspace = true
-symphonia = "0.5"
+# 注意:symphonia 默认 feature 不含 mp3/aac,必须显式开启;
+# isomp4 支持 m4a 容器;opt-simd 开启 SIMD 优化。opus/ape/wavpack 无 feature 支持(见 CLAUDE.md R3)。
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4", "opt-simd"] }

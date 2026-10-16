@@ -21,7 +21,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M3 | 播放列表 + 后台播放(MediaSession) | 🔶 代码完成,待真机验收 |
 | M4 | 元数据/封面/seek/播放模式 | 🔶 代码完成,待真机验收 |
 | M5 | 主题/设置/焦点与耳机体验打磨 | 🔶 代码完成,待真机验收 |
-| M6 | 签名发布 + GitHub Releases | ⬜ |
+| M6 | 签名发布 + GitHub Releases | 🔶 代码完成,待验收(推 tag 验证) |
 
 ## 3. 架构总览
 
@@ -59,7 +59,7 @@ Rust 核心
 
 | # | 领域 | 选择 | 备选 | 理由 |
 |---|---|---|---|---|
-| D1 | 解码 | symphonia | ffmpeg 绑定 | 纯 Rust、许可干净;mp3/flac/ogg/wav/aac 开箱即用 |
+| D1 | 解码 | symphonia(features: mp3/aac/isomp4/opt-simd,显式开启) | ffmpeg 绑定 | 纯 Rust、许可干净;**默认 feature 不含 mp3/aac,必须显式开启**(M6 实测发现);opus/ape/wavpack 无支持(见 R3) |
 | D2 | 音频输出 | **AudioTrack via JNI**(M2 起)→ 后续评估 oboe-rs/aaudio | oboe-rs、aaudio crate | oboe-rs 上游停更、与新 NDK 兼容风险高;AudioTrack 零额外原生依赖、阻塞写自带背压,音乐播放延迟足够。trait 抽象可替换(见 R1) |
 | D3 | Kotlin↔Rust | 手写 `jni` crate | UniFFI | API 面小、Rust→Kotlin 回调语义直接;API 膨胀再评估 |
 | D4 | UI | Compose + Material 3 | XML Views | 新项目默认;与 StateFlow 单向数据流契合 |
@@ -211,16 +211,17 @@ adb logcat -s hirust
 - [ ] 验收:monkey 1 小时无崩溃;耳机拔出即停;通知类 App(导航/助手)播放时正确压低或暂停并恢复
 - 备注:语言切换(需 appcompat + 全量字符串抽取)与扫描目录白名单推迟到 M6 后;i18n 前先完成 strings.xml 迁移
 
-### M6 发布
+### M6 发布 🔶(2026-10-16 代码完成,待验收)
 
-- [ ] release.yml:签名(keystore 走 GitHub Secrets)→ GitHub Releases 附 APK
-- [ ] R8 混淆(keep AudioBridge)、版本号自动化
-- [ ] 扩展格式评估(ape/wavpack/opus)
-- 验收:推 tag 自动出 Release
+- [x] release.yml:推 tag `v*` 触发 → 签名(Secrets:HIRUST_KEYSTORE_B64/PASSWORD/ALIAS/KEY_PASSWORD;缺失时自动退 debug 签名)→ `assembleRelease` → GitHub Releases 附 APK(自动生成 release notes)
+- [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
+- [x] 格式评估(实证):symphonia 0.5.5 无 opus/ape/wavpack;且默认 feature 不含 mp3/aac → 已显式开启 mp3/aac/isomp4/opt-simd(修复 M0 以来的隐性缺口)
+- [ ] 验收:配置 Secrets 后推 tag,Release 页出现可安装 APK;R8 后真机回归(JNI 加载、播放、封面)
+- 密钥生成与 Secrets 配置步骤见 README「发布」
 
 ## 10. CI(GitHub Actions)
 
-`.github/workflows/ci.yml`,触发:push 到 main / PR / 手动(workflow_dispatch)。
+`.github/workflows/ci.yml`,触发:push 到 main / PR / 手动(workflow_dispatch)。另有 `.github/workflows/release.yml`:推 tag `v*` 触发签名发布。
 
 | Job | 内容 |
 |---|---|
@@ -259,7 +260,7 @@ adb logcat -s hirust
 |---|---|---|
 | R1 | oboe-rs 上游维护放缓 | `AudioOutput` trait 隔离;可换 aaudio crate 或 AudioTrack JNI 桥 |
 | R2 | API 24 无 AAudio(需 26) | oboe 自动回退 OpenSL;若受阻将 minSdk 提到 26(需决策) |
-| R3 | symphonia 不支持 ape/wavpack | M6 评估 symphonia feature 或 ffmpeg sidecar |
+| R3 | symphonia 不支持 ape/wavpack | M6 已确认(0.5.5 无对应 feature,opus 同样无);如需支持走 ffmpeg sidecar,列为 M6 后大项 |
 | R4 | 新 NDK 与 cargo-ndk 兼容性 | CI 只选 26–28 系列;必要时锁定精确版本 |
 | R5 | Media3 与自研引擎状态同步 | 只用 MediaSession 控制面,状态以引擎为准单向同步 |
 

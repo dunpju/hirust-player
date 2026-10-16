@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Signed release APK → GitHub Releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          ALL_NDK=$(sdkmanager --list | grep -oE 'ndk;[0-9]+(\.[0-9]+)+' | cut -d';' -f2 | sort -uV)
+          NDK_VERSION=$(echo "$ALL_NDK" | grep -E '^2[678]\.' | tail -1)
+          [ -n "$NDK_VERSION" ] || NDK_VERSION=$(echo "$ALL_NDK" | tail -1)
+          echo "Installing NDK ${NDK_VERSION}"
+          yes | sdkmanager --licenses > /dev/null || true
+          yes | sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Rust (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.HIRUST_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.HIRUST_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.HIRUST_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.HIRUST_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/hirust.keystore"
+            echo "HIRUST_KEYSTORE_FILE=$RUNNER_TEMP/hirust.keystore" >> "$GITHUB_ENV"
+            echo "HIRUST_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "HIRUST_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "HIRUST_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "signing: enabled"
+          else
+            echo "signing: secrets 缺失,退化为 debug 签名"
+          fi
+
+      - name: Build Rust libraries (Android ABIs)
+        working-directory: rust
+        run: >
+          cargo ndk
+          -t arm64-v8a -t armeabi-v7a -t x86_64
+          -o ../android/app/src/main/jniLibs
+          build --release -p player-jni
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build signed release APK
+        working-directory: android
+        run: >
+          gradle :app:assembleRelease
+          -PVERSION_NAME=${GITHUB_REF_NAME}
+          --stacktrace
+
+      - name: Rename APK
+        run: |
+          cd android/app/build/outputs/apk/release
+          ls -la
+          mv app-release.apk "hirust-player-${GITHUB_REF_NAME}.apk" || true
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: android/app/build/outputs/apk/release/hirust-player-*.apk
