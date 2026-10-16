@@ -68,6 +68,13 @@ object AudioBridge {
     external fun state(): Int
     external fun setRepeatMode(mode: Int)
     external fun setShuffle(on: Boolean)
+    external fun setVolume(volume: Float)
+
+    /** 读取曲目标签,JSON:{"title":..,"artist":..,"album":..,"durationMs":N}(空字段省略)。 */
+    external fun trackInfo(path: String): String
+
+    /** 读取内嵌封面字节;无封面返回 null。 */
+    external fun trackCover(path: String): ByteArray?
     private external fun engineStart()
 
     // ---- 事件(Rust → Kotlin,事件泵线程)----

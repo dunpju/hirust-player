@@ -51,6 +51,11 @@ impl SampleSink {
     pub fn total_samples(&self) -> usize {
         self.0.lock().map(|s| s.len()).unwrap_or(0)
     }
+
+    /// 当前已写入样本的拷贝(测试断言用)。
+    pub fn snapshot(&self) -> Vec<f32> {
+        self.0.lock().map(|s| s.clone()).unwrap_or_default()
+    }
 }
 
 /// 测试用模拟输出:记录写入的样本,可按实时速率消费。

@@ -239,3 +239,29 @@ fn user_next_switches_track_immediately() {
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
 }
+
+#[test]
+fn volume_scales_output_samples() {
+    let path = temp_wav("eng7");
+    write_sine_wav(&path, 44_100, 300);
+
+    let run = |volume: f32| -> f32 {
+        let (mock, sink) = MockOutput::new(false);
+        let engine = Engine::new(Box::new(mock));
+        engine.set_volume(volume);
+        engine.set_queue(vec![path.clone()], Some(0));
+        engine.play();
+        assert!(wait_event(&engine, is_queue_ended, Duration::from_secs(5)).is_some());
+        engine.shutdown();
+        sink.snapshot().iter().fold(0.0f32, |m, s| m.max(s.abs()))
+    };
+
+    let full = run(1.0);
+    let half = run(0.5);
+    assert!(full > 0.2, "满音量应有有效幅度: {full}");
+    assert!(
+        (half / full - 0.5).abs() < 0.05,
+        "0.5 音量应衰减约一半: full={full} half={half}"
+    );
+    let _ = std::fs::remove_file(&path);
+}

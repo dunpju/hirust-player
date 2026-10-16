@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hirust.player.audio.AudioBridge
+import com.hirust.player.audio.RepeatModes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -42,11 +43,13 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                         MediaStore.Audio.Media.ARTIST,
                         MediaStore.Audio.Media.DURATION,
                         MediaStore.Audio.Media.DATA,
+                        MediaStore.Audio.Media.ALBUM_ID,
                     ),
                     "${MediaStore.Audio.Media.DURATION} >= 10000",
                     null,
                     "${MediaStore.Audio.Media.TITLE} ASC",
                 )?.use { cursor ->
+                    val albumIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
                     while (cursor.moveToNext()) {
                         val path = cursor.getString(4) ?: continue
                         tracks += Track(
@@ -55,6 +58,11 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                             artist = cursor.getString(2) ?: "",
                             durationMs = cursor.getLong(3),
                             path = path,
+                            albumId = if (albumIdx >= 0 && !cursor.isNull(albumIdx)) {
+                                cursor.getLong(albumIdx)
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
@@ -76,4 +84,18 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun seekTo(ms: Long) = AudioBridge.seekMs(ms)
 
     fun playAt(index: Int) = PlayerBus.playIndex(index)
+
+    /** 循环模式:关 → 单曲 → 列表 → 关。 */
+    fun toggleRepeat() {
+        val next = when (PlayerBus.state.value.repeatMode) {
+            RepeatModes.OFF -> RepeatModes.ONE
+            RepeatModes.ONE -> RepeatModes.ALL
+            else -> RepeatModes.OFF
+        }
+        PlayerBus.setRepeatMode(next)
+    }
+
+    fun toggleShuffle() = PlayerBus.toggleShuffle()
+
+    fun setVolume(volume: Float) = PlayerBus.setVolume(volume)
 }

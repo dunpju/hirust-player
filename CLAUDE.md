@@ -19,7 +19,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ✅ 2026-10-16 |
 | M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | 🔶 代码完成,待真机验收 |
 | M3 | 播放列表 + 后台播放(MediaSession) | 🔶 代码完成,待真机验收 |
-| M4 | 元数据/封面/seek/播放模式 | ⬜ |
+| M4 | 元数据/封面/seek/播放模式 | 🔶 代码完成,待真机验收 |
 | M5 | 主题/设置/焦点与耳机体验打磨 | ⬜ |
 | M6 | 签名发布 + GitHub Releases | ⬜ |
 
@@ -77,8 +77,8 @@ hirust-player/
 ├─ rust/                         # Rust workspace
 │  ├─ Cargo.toml
 │  ├─ player-core/               # 引擎核心(无 Android 依赖)
-│  │  ├─ src/{lib,engine,decoder,queue,output,error}.rs
-│  │  └─ tests/{common,decoder,engine}.rs   # WAV 程序化生成,无二进制 fixtures
+│  │  ├─ src/{lib,engine,decoder,queue,output,error,metadata}.rs
+│  │  └─ tests/{common,decoder,engine,metadata}.rs   # WAV 程序化生成,无二进制 fixtures
 │  └─ player-jni/                # cdylib JNI 桥 → libplayer_jni.so
 │     └─ src/{lib,output,events}.rs   # 命令 / AudioTrack 宿主 / 事件泵
 └─ android/
@@ -152,7 +152,7 @@ adb logcat -s hirust
 | `setRepeatMode(mode)` / `setShuffle(on)` | K→R | ✅ M2 |
 | `onStateChanged` / `onPositionChanged` / `onTrackStarted` / `onTrackEnded` / `onQueueEnded` / `onError` | R→K 回调 | ✅ M2 |
 | `outputStart/Write/Suspend/Resume/Stop`(AudioTrack 宿主) | R→K | ✅ M2 |
-| `setVolume(v)` | K→R | M4 |
+| `setVolume(v)` / `trackInfo(path)` / `trackCover(path)` | K↔R | ✅ M4 |
 
 ## 9. 开发计划(里程碑明细)
 
@@ -191,12 +191,14 @@ adb logcat -s hirust
 - [ ] 验收:锁屏可控制;后台连播 ≥30 分钟无中断;划掉任务后播放不中断
 - 备注:恢复不还原播放位置(seek 需先打开解码器);曲目内进度由通知 seekbar 读取 positionMs
 
-### M4 元数据与播放体验
+### M4 元数据与播放体验 🔶(2026-10-16 代码完成,待真机验收)
 
-- [ ] ID3v2/VorbisComment/FLAC 标签 + 内嵌封面(磁盘缓存)
-- [ ] SeekBar 拖动 seek、循环/随机切换、音量
-- [ ] (可选)ReplayGain、淡入淡出
-- 验收:seek 误差 <200ms;列表显示标题/艺人/封面
+- [x] 标签读取:Rust `metadata::read_tags`(symphonia,标准化 std_key + 字符串 key 兜底),JNI `trackInfo(path)` 返回 JSON
+- [x] 封面:Rust `read_cover`(优先 FrontCover)→ JNI `trackCover(path)`;Kotlin CoverStore 磁盘缓存;列表/正在播放/通知封面(正在播放=内嵌优先、MediaStore albumart 兜底;列表=albumart)
+- [x] SeekBar 拖动 seek(M2 已做,实测节流 10Hz)
+- [x] 循环/随机切换 UI(PlayerBus 单一状态源,通知与 UI 双向一致)+ 音量滑条(引擎线程线性缩放,JNI `setVolume`)
+- [ ] 验收:seek 误差 <200ms;列表显示标题/艺人/封面;音量即时生效
+- 备注:ReplayGain/淡入淡出继续搁置(M5+ 再评估);恢复场景列表元数据来自上次扫描持久化
 
 ### M5 体验打磨
 

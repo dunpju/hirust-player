@@ -21,8 +21,6 @@ import com.hirust.player.audio.AudioBridge
 class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
     @Volatile private var playWhenReady = false
-    @Volatile private var repeatMode = Player.REPEAT_MODE_OFF
-    @Volatile private var shuffleEnabled = false
 
     /** 引擎事件到达后由服务调用,刷新会话状态(通知/锁屏)。 */
     fun onExternalStateChanged() {
@@ -56,8 +54,8 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             .setCurrentMediaItemIndex(index)
             .setContentPositionMs(AudioBridge.positionMs())
             .setDurationMs(AudioBridge.durationMs())
-            .setRepeatMode(repeatMode)
-            .setShuffleModeEnabled(shuffleEnabled)
+            .setRepeatMode(s.repeatMode)
+            .setShuffleModeEnabled(s.shuffle)
             .build()
     }
 
@@ -96,14 +94,14 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     }
 
     override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
-        this.repeatMode = repeatMode
-        AudioBridge.setRepeatMode(repeatMode)
+        PlayerBus.setRepeatMode(repeatMode)
+        invalidateState()
         return Futures.immediateVoidFuture()
     }
 
     override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
-        this.shuffleEnabled = shuffleModeEnabled
-        AudioBridge.setShuffle(shuffleModeEnabled)
+        PlayerBus.setShuffle(shuffleModeEnabled)
+        invalidateState()
         return Futures.immediateVoidFuture()
     }
 
@@ -113,6 +111,7 @@ class EnginePlayer : SimpleBasePlayer(Looper.getMainLooper()) {
             MediaMetadata.Builder()
                 .setTitle(title)
                 .setArtist(artist.ifEmpty { "未知艺人" })
+                .setArtworkUri(albumArtUri)
                 .build()
         )
         .build()

@@ -13,6 +13,11 @@ import androidx.media3.session.MediaSessionService
 import com.hirust.player.audio.AudioBridge
 import com.hirust.player.audio.EngineListener
 import com.hirust.player.audio.PlayStates
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * 后台播放服务:持有 MediaSession(EnginePlayer)与引擎事件监听。
@@ -26,6 +31,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var enginePlayer: EnginePlayer? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val audioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -54,18 +60,15 @@ class PlaybackService : MediaSessionService() {
             override fun onStateChanged(state: Int) {
                 PlayerBus.update { it.copy(playing = state == PlayStates.PLAYING) }
                 if (state == PlayStates.PLAYING) ensureFocus() else abandonFocus()
-                enginePlayer?.onExternalStateChanged()
             }
 
             override fun onPositionChanged(positionMs: Long) {
                 PlayerBus.update { it.copy(positionMs = positionMs) }
-                enginePlayer?.onExternalStateChanged()
             }
 
             override fun onTrackStarted(index: Int) {
                 PlayerBus.update { it.copy(currentIndex = index, positionMs = 0) }
                 PlayerBus.persist(this@PlaybackService)
-                enginePlayer?.onExternalStateChanged()
             }
 
             override fun onTrackEnded(index: Int) = Unit
@@ -73,13 +76,16 @@ class PlaybackService : MediaSessionService() {
             override fun onQueueEnded() {
                 PlayerBus.update { it.copy(playing = false, positionMs = 0, currentIndex = -1) }
                 abandonFocus()
-                enginePlayer?.onExternalStateChanged()
             }
 
             override fun onError(message: String) {
                 PlayerBus.update { it.copy(playing = false, error = message) }
-                enginePlayer?.onExternalStateChanged()
             }
+        }
+
+        // 统一状态失效:PlayerBus 任何变化(含 UI 侧改循环/音量)都刷新会话。
+        serviceScope.launch {
+            PlayerBus.state.collect { enginePlayer?.onExternalStateChanged() }
         }
     }
 
@@ -94,6 +100,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         AudioBridge.listener = null
         mediaSession?.release()
         mediaSession = null

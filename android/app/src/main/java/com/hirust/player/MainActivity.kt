@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
@@ -34,12 +35,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.hirust.player.audio.AudioBridge
+import com.hirust.player.audio.RepeatModes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -112,6 +118,8 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             )
         }
 
+        NowPlaying(track = ui.tracks.getOrNull(ui.currentIndex))
+
         SeekBar(
             positionMs = ui.positionMs,
             durationMs = ui.durationMs,
@@ -120,13 +128,39 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedButton(onClick = vm::prev) { Text("⏮") }
             Button(onClick = { if (ui.playing) vm.pause() else vm.play() }) {
                 Text(if (ui.playing) "⏸ 暂停" else "▶ 播放")
             }
             OutlinedButton(onClick = vm::next) { Text("⏭") }
+            OutlinedButton(onClick = vm::toggleRepeat) {
+                Text(
+                    when (ui.repeatMode) {
+                        RepeatModes.ONE -> "单曲"
+                        RepeatModes.ALL -> "列表"
+                        else -> "顺序"
+                    }
+                )
+            }
+            OutlinedButton(onClick = vm::toggleShuffle) {
+                Text(if (ui.shuffle) "随机·开" else "随机·关")
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("音量", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = ui.volume,
+                onValueChange = vm::setVolume,
+                modifier = Modifier.weight(1f),
+            )
         }
 
         ui.error?.let {
@@ -144,6 +178,45 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             onPick = vm::playAt,
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+/** 正在播放条:封面(内嵌封面优先,MediaStore 专辑封面兜底)+ 标题/艺人。 */
+@Composable
+private fun NowPlaying(track: Track?) {
+    val context = LocalContext.current
+    var cover by remember(track?.path) { mutableStateOf<Any?>(null) }
+
+    LaunchedEffect(track?.path) {
+        cover = track?.let { t ->
+            withContext(Dispatchers.IO) { CoverStore.load(context, t.path) } ?: t.albumArtUri
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = cover,
+            contentDescription = null,
+            modifier = Modifier.size(56.dp),
+            contentScale = ContentScale.Crop,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track?.title ?: "未在播放",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Text(
+                text = track?.artist?.ifEmpty { "未知艺人" } ?: "从曲库中选择一首开始",
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -172,10 +245,16 @@ private fun TrackList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onPick(index) }
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                AsyncImage(
+                    model = track.albumArtUri,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    contentScale = ContentScale.Crop,
+                )
                 Text(
                     text = if (current && playing) "▶" else if (current) "⏸" else "",
                     color = MaterialTheme.colorScheme.primary,

@@ -24,12 +24,14 @@
 pub mod decoder;
 pub mod engine;
 pub mod error;
+pub mod metadata;
 pub mod output;
 pub mod queue;
 
 pub use decoder::{AudioDecoder, MediaInfo};
 pub use engine::{Command, Engine, EngineEvent, PlayState};
 pub use error::CoreError;
+pub use metadata::{read_cover, read_tags, Cover, TrackTags};
 pub use output::{AudioOutput, MockOutput, OutputError, SampleSink};
 pub use queue::{PlayQueue, QueueItem, RepeatMode};
 

@@ -52,6 +52,8 @@ pub enum Command {
     },
     SetRepeat(RepeatMode),
     SetShuffle(bool),
+    /// 输出音量 [0,1],线性缩放(引擎线程应用,不进音频回调)。
+    SetVolume(f32),
     Shutdown,
 }
 
@@ -158,6 +160,11 @@ impl Engine {
         self.send(Command::SetShuffle(on));
     }
 
+    /// 设置音量 [0,1],超界自动钳制。
+    pub fn set_volume(&self, volume: f32) {
+        self.send(Command::SetVolume(volume));
+    }
+
     /// 非阻塞取一条事件。
     pub fn try_event(&self) -> Option<EngineEvent> {
         self.events.try_recv().ok()
@@ -215,6 +222,8 @@ fn run(
         output,
         state: PlayState::Stopped,
         last_pos_emit: None,
+        volume: 1.0,
+        scratch: Vec::new(),
     };
 
     'outer: loop {
@@ -256,6 +265,10 @@ struct Worker {
     output: Box<dyn AudioOutput>,
     state: PlayState,
     last_pos_emit: Option<Instant>,
+    /// 线性音量 [0,1]。
+    volume: f32,
+    /// 音量缩放复用缓冲(非 1.0 时启用)。
+    scratch: Vec<f32>,
 }
 
 impl Worker {
@@ -311,6 +324,7 @@ impl Worker {
             }
             Command::SetRepeat(mode) => self.queue.set_repeat_mode(mode),
             Command::SetShuffle(on) => self.queue.set_shuffle(on),
+            Command::SetVolume(v) => self.volume = v.clamp(0.0, 1.0),
         }
         true
     }
@@ -323,6 +337,14 @@ impl Worker {
 
         match dec.next_block() {
             Ok(Some(block)) => {
+                // 音量缩放(音量为 1.0 时零开销直通)。
+                let block: &[f32] = if (self.volume - 1.0).abs() > f32::EPSILON {
+                    self.scratch.clear();
+                    self.scratch.extend(block.iter().map(|s| s * self.volume));
+                    self.scratch.as_slice()
+                } else {
+                    block
+                };
                 if let Err(e) = self.output.write(block) {
                     self.emit_error(etx, format!("写入输出失败: {e}"));
                     self.stop_current(etx, shared);

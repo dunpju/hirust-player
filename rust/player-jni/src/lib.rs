@@ -15,7 +15,7 @@ mod output;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use jni::objects::{JClass, JObjectArray, JString};
-use jni::sys::{jboolean, jint, jlong, jstring};
+use jni::sys::{jboolean, jbyteArray, jfloat, jint, jlong, jstring};
 use jni::JNIEnv;
 use log::warn;
 
@@ -275,4 +275,107 @@ pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_setShuffle(
     on: jboolean,
 ) {
     with_engine(move |e| e.set_shuffle(on != 0));
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_setVolume(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    volume: jfloat,
+) {
+    with_engine(move |e| e.set_volume(volume));
+}
+
+/// 读取曲目标签,返回 JSON:{"title":..,"artist":..,"album":..,"durationMs":N}
+/// (空值字段省略)。失败时抛 IllegalStateException。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_trackInfo(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    path: JString<'_>,
+) -> jstring {
+    let json = match jstring_to_path(&mut env, &path)
+        .and_then(|p| player_core::metadata::read_tags(&p).map_err(|e| e.to_string()))
+    {
+        Ok(tags) => tags_to_json(&tags),
+        Err(message) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", message);
+            return std::ptr::null_mut();
+        }
+    };
+    match env.new_string(json) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// 读取内嵌封面字节(无封面或失败返回 null)。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_trackCover(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    path: JString<'_>,
+) -> jbyteArray {
+    let cover = match jstring_to_path(&mut env, &path)
+        .and_then(|p| player_core::metadata::read_cover(&p).map_err(|e| e.to_string()))
+    {
+        Ok(c) => c,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let Some(cover) = cover else {
+        return std::ptr::null_mut();
+    };
+    match env.byte_array_from_slice(&cover.data) {
+        Ok(arr) => arr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn jstring_to_path(env: &mut JNIEnv<'_>, s: &JString<'_>) -> Result<std::path::PathBuf, String> {
+    let java = env
+        .get_string(s)
+        .map_err(|e| format!("读取字符串失败: {e}"))?;
+    Ok(std::path::PathBuf::from(
+        java.to_string_lossy().into_owned(),
+    ))
+}
+
+fn tags_to_json(tags: &player_core::metadata::TrackTags) -> String {
+    let mut out = String::with_capacity(128);
+    out.push('{');
+    let mut first = true;
+    let field = |out: &mut String, first: &mut bool, key: &str, value: &Option<String>| {
+        if let Some(v) = value {
+            if !*first {
+                out.push(',');
+            }
+            *first = false;
+            out.push_str(&format!("\"{key}\":\"{}\"", json_escape(v)));
+        }
+    };
+    field(&mut out, &mut first, "title", &tags.title);
+    field(&mut out, &mut first, "artist", &tags.artist);
+    field(&mut out, &mut first, "album", &tags.album);
+    if !first {
+        out.push(',');
+    }
+    out.push_str(&format!("\"durationMs\":{}", tags.duration_ms));
+    out.push('}');
+    out
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
