@@ -58,10 +58,11 @@ fn plays_single_track_to_queue_end() {
     assert!(wait_event(
         &engine,
         state_changed(PlayState::Playing),
-        Duration::from_secs(2)
+        Duration::from_secs(5)
     )
     .is_some());
-    assert_eq!(engine.state(), PlayState::Playing);
+    // 注:不断言此处 state()==Playing——快速输出下整曲可能在断言前播完翻回
+    // Stopped(Linux 慢速 runner 实测竞态);收到 Playing 事件即已证明状态转换。
 
     assert!(wait_event(&engine, is_queue_ended, Duration::from_secs(5)).is_some());
     assert_eq!(engine.state(), PlayState::Stopped);
