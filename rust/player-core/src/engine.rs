@@ -186,6 +186,15 @@ impl Engine {
     pub fn shutdown(self) {
         let _ = self.tx.send(Command::Shutdown);
     }
+
+    /// 把事件接收端整体移出(交给独立的事件泵线程阻塞消费)。
+    ///
+    /// 移出后 [`Engine::try_event`] 恒返回 `None`;查询请用
+    /// [`Engine::position_ms`] / [`Engine::state`]。
+    pub fn take_events(&mut self) -> Receiver<EngineEvent> {
+        let (_, dummy) = std::sync::mpsc::channel();
+        std::mem::replace(&mut self.events, dummy)
+    }
 }
 
 impl Drop for Engine {
@@ -208,18 +217,18 @@ fn run(
         last_pos_emit: None,
     };
 
-    loop {
+    'outer: loop {
         if worker.is_active() {
             // 播放中:先非阻塞清空命令,再解码一块(输出节流决定整体节奏)。
             loop {
                 match rx.try_recv() {
                     Ok(cmd) => {
                         if !worker.handle(cmd, &etx, &shared) {
-                            return;
+                            break 'outer;
                         }
                     }
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(TryRecvError::Disconnected) => break 'outer,
                 }
             }
             worker.decode_step(&etx, &shared);
@@ -228,13 +237,16 @@ fn run(
             match rx.recv() {
                 Ok(cmd) => {
                     if !worker.handle(cmd, &etx, &shared) {
-                        return;
+                        break 'outer;
                     }
                 }
-                Err(_) => return,
+                Err(_) => break 'outer,
             }
         }
     }
+
+    // 退出前释放输出资源(AudioTrack 等),不依赖 Drop 顺序。
+    let _ = worker.output.stop();
 }
 
 /// 引擎线程内部状态。

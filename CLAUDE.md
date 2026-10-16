@@ -17,7 +17,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 |---|---|---|
 | M0 | 骨架 + CI(可安装 APK,JNI 打通) | ✅ 2026-10-16 |
 | M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ✅ 2026-10-16 |
-| M2 | Android 输出(oboe)+ 完整 JNI 桥 + 最小播放页 | ⬜ |
+| M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | 🔶 代码完成,待真机验收 |
 | M3 | 播放列表 + 后台播放(MediaSession) | ⬜ |
 | M4 | 元数据/封面/seek/播放模式 | ⬜ |
 | M5 | 主题/设置/焦点与耳机体验打磨 | ⬜ |
@@ -60,7 +60,7 @@ Rust 核心
 | # | 领域 | 选择 | 备选 | 理由 |
 |---|---|---|---|---|
 | D1 | 解码 | symphonia | ffmpeg 绑定 | 纯 Rust、许可干净;mp3/flac/ogg/wav/aac 开箱即用 |
-| D2 | 音频输出 | oboe-rs(AAudio/OpenSL 自动切换) | aaudio crate、AudioTrack via JNI | Android 官方推荐低延迟路径;trait 抽象可替换(见 R1) |
+| D2 | 音频输出 | **AudioTrack via JNI**(M2 起)→ 后续评估 oboe-rs/aaudio | oboe-rs、aaudio crate | oboe-rs 上游停更、与新 NDK 兼容风险高;AudioTrack 零额外原生依赖、阻塞写自带背压,音乐播放延迟足够。trait 抽象可替换(见 R1) |
 | D3 | Kotlin↔Rust | 手写 `jni` crate | UniFFI | API 面小、Rust→Kotlin 回调语义直接;API 膨胀再评估 |
 | D4 | UI | Compose + Material 3 | XML Views | 新项目默认;与 StateFlow 单向数据流契合 |
 | D5 | 后台/通知 | Media3 MediaSession(仅控制面) | 自建通知 | 统一锁屏/耳机/车载控制;播放仍由 Rust 引擎驱动 |
@@ -80,7 +80,7 @@ hirust-player/
 │  │  ├─ src/{lib,engine,decoder,queue,output,error}.rs
 │  │  └─ tests/{common,decoder,engine}.rs   # WAV 程序化生成,无二进制 fixtures
 │  └─ player-jni/                # cdylib JNI 桥 → libplayer_jni.so
-│     └─ src/lib.rs              # M2 增 callbacks.rs
+│     └─ src/{lib,output,events}.rs   # 命令 / AudioTrack 宿主 / 事件泵
 └─ android/
    ├─ settings.gradle.kts / build.gradle.kts / gradle.properties
    └─ app/
@@ -88,8 +88,9 @@ hirust-player/
       └─ src/main/
          ├─ AndroidManifest.xml
          ├─ java/com/hirust/player/
-         │  ├─ MainActivity.kt
-         │  └─ audio/AudioBridge.kt   # JNI 唯一入口
+         │  ├─ MainActivity.kt        # Compose 播放页
+         │  ├─ PlayerViewModel.kt     # UiState/焦点/SAF 落盘
+         │  └─ audio/AudioBridge.kt   # JNI 唯一入口 + AudioTrack 宿主
          └─ jniLibs/             # 生成物,不入库
 ```
 
@@ -142,10 +143,13 @@ adb logcat -s hirust
 | 方法 | 方向 | 状态 |
 |---|---|---|
 | `version(): String` | K→R | ✅ M0 |
-| `load(path)` / `play()` / `pause()` / `stop()` | K→R | M2 |
-| `seekMs(ms)` / `positionMs()` / `durationMs()` | K↔R | M2 |
-| `state()` / `setVolume(v)` | K↔R | M2 |
-| `onStateChanged` / `onPositionChanged` / `onTrackEnded` / `onError` | R→K 回调 | M2 |
+| `engineStart()` / `release()` | K→R | ✅ M2 |
+| `setQueue(paths, start)` / `play()` / `pause()` / `resume()` / `stop()` / `next()` / `prev()` | K→R | ✅ M2 |
+| `seekMs(ms)` / `positionMs()` / `durationMs()` / `state()` | K↔R | ✅ M2 |
+| `setRepeatMode(mode)` / `setShuffle(on)` | K→R | ✅ M2 |
+| `onStateChanged` / `onPositionChanged` / `onTrackStarted` / `onTrackEnded` / `onQueueEnded` / `onError` | R→K 回调 | ✅ M2 |
+| `outputStart/Write/Suspend/Resume/Stop`(AudioTrack 宿主) | R→K | ✅ M2 |
+| `setVolume(v)` | K→R | M4 |
 
 ## 9. 开发计划(里程碑明细)
 
@@ -166,14 +170,14 @@ adb logcat -s hirust
 - [x] 测试:tests/{decoder,engine}.rs + WAV 程序化生成,共 16 用例
 - 验收:`cargo test --workspace` 全绿;player-core 仅依赖 symphonia/thiserror,无 Android 依赖 ✅
 
-### M2 Android 输出与完整 JNI 桥
+### M2 Android 输出与完整 JNI 桥 🔶(2026-10-16 代码完成,待真机验收)
 
-- [ ] oboe 后端实现 `AudioOutput`(AAudio,API<26 回退 OpenSL)
-- [ ] AudioBridge 完整命令 API + Rust→Kotlin 事件回调(位置 10Hz 节流)
-- [ ] android_logger(tag=hirust)+ panic hook,崩溃日志可读
-- [ ] 最小播放页:SAF 选文件、播放/暂停、进度显示
-- [ ] 音频焦点最简实现(丢失即暂停)
-- 验收:真机播 mp3/flac 无爆音;后台短时不断音
+- [x] 输出后端:`JniOutput`(AudioTrack via JNI,见 D2 修订;oboe/AAudio 后续评估)
+- [x] AudioBridge 完整命令 API + Rust→Kotlin 事件回调(位置 10Hz 节流,事件泵线程)
+- [x] android_logger(tag=hirust)+ panic hook,崩溃日志可读
+- [x] 最小播放页:SAF 多选文件(复制到私有缓存)、播放/暂停/切歌、进度拖动
+- [x] 音频焦点最简实现(永久丢失即暂停,API 26+ 用 AudioFocusRequest)
+- [ ] 验收:真机播 mp3/flac 无爆音;后台短时不断音(CI 出包后装机验证)
 
 ### M3 播放列表与后台播放
 
