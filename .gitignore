@@ -19,3 +19,4 @@ android/app/src/main/jniLibs/
 # OS
 .DS_Store
 Thumbs.db
+/rust/Cargo.lock

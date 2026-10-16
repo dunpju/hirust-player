@@ -16,7 +16,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M0 | 骨架 + CI(可安装 APK,JNI 打通) | ✅ 2026-10-16 |
-| M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ⬜ |
+| M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ✅ 2026-10-16 |
 | M2 | Android 输出(oboe)+ 完整 JNI 桥 + 最小播放页 | ⬜ |
 | M3 | 播放列表 + 后台播放(MediaSession) | ⬜ |
 | M4 | 元数据/封面/seek/播放模式 | ⬜ |
@@ -77,7 +77,8 @@ hirust-player/
 ├─ rust/                         # Rust workspace
 │  ├─ Cargo.toml
 │  ├─ player-core/               # 引擎核心(无 Android 依赖)
-│  │  └─ src/{lib,engine,output}.rs   # M1 增 decoder.rs、queue.rs、tests/fixtures/
+│  │  ├─ src/{lib,engine,decoder,queue,output,error}.rs
+│  │  └─ tests/{common,decoder,engine}.rs   # WAV 程序化生成,无二进制 fixtures
 │  └─ player-jni/                # cdylib JNI 桥 → libplayer_jni.so
 │     └─ src/lib.rs              # M2 增 callbacks.rs
 └─ android/
@@ -156,14 +157,14 @@ adb logcat -s hirust
 - [x] GitHub Actions:rust-check + android-build 产出 debug APK artifact
 - 验收:CI 绿;APK 安装后显示「Rust 引擎版本:0.1.0」
 
-### M1 Rust 引擎核心(player-core,桌面可测)
+### M1 Rust 引擎核心(player-core,桌面可测)✅(2026-10-16)
 
-- [ ] `AudioOutput` trait 定稿 + MockOutput(模拟时钟)
-- [ ] symphonia 解码:probe、解码到 f32 interleaved、时长、seek(时间↔字节)
-- [ ] Engine:命令通道 + 解码线程 + SPSC 环形缓冲 + 状态机
-- [ ] 播放队列与循环模式(列表/单曲/随机)
-- [ ] 单测:fixtures 放 `rust/player-core/tests/fixtures/`(小体积样本)
-- 验收:`cargo test` 全绿;crate 无 Android 依赖(不出现 jni/oboe)
+- [x] `AudioOutput` trait 定稿 + MockOutput(可选实时节奏)+ SampleSink 断言句柄
+- [x] symphonia 解码:probe、逐块交织 f32、时长、seek(时间戳自校准位置)
+- [x] Engine:命令通道 + 引擎线程 + 状态机 + 事件流(位置 10Hz 节流)
+- [x] 播放队列:循环(关/单曲/列表)+ 随机序(当前曲置首)+ 手动跳转
+- [x] 测试:tests/{decoder,engine}.rs + WAV 程序化生成,共 16 用例
+- 验收:`cargo test --workspace` 全绿;player-core 仅依赖 symphonia/thiserror,无 Android 依赖 ✅
 
 ### M2 Android 输出与完整 JNI 桥
 
@@ -215,7 +216,7 @@ adb logcat -s hirust
 
 - `jniLibs/` 是 CI/本地生成物,不入库;
 - 仓库未提交 gradle wrapper,CI 用 `gradle/actions/setup-gradle` 指定 8.10.2;
-- `Cargo.lock` 在首次本地构建后提交,保证 CI 可复现。
+- `Cargo.lock` 不入库(见 .gitignore);CI 每次按 semver 解析最新兼容版本。
 
 ## 11. 编码规范
 
