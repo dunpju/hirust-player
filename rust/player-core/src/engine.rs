@@ -285,7 +285,19 @@ impl Worker {
             Command::Shutdown => return false,
             Command::SetQueue { items, start } => {
                 let items = items.into_iter().map(|path| QueueItem { path }).collect();
+                let was_active = self.decoder.is_some();
                 self.queue.set_items(items, start);
+                if was_active {
+                    // 播放/暂停中替换队列:立即切到新起点曲目并保持播放状态,
+                    // 否则后续 play() 在 Playing 态是 no-op,表现为点歌无响应。
+                    self.decoder = None;
+                    if self.queue.current().is_some() {
+                        let autoplay = self.state == PlayState::Playing;
+                        self.open_current(autoplay, etx, shared);
+                    } else {
+                        self.stop_current(etx, shared);
+                    }
+                }
             }
             Command::Play => match self.state {
                 PlayState::Paused => self.resume_playback(etx, shared),

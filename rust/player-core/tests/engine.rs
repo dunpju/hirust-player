@@ -326,3 +326,42 @@ fn all_bad_queue_ends_without_playing() {
     assert!(wait_event(&engine, is_queue_ended, Duration::from_secs(5)).is_some());
     assert_eq!(engine.state(), PlayState::Stopped);
 }
+
+#[test]
+fn set_queue_during_playback_switches_to_new_start() {
+    let a = temp_wav("eng9a");
+    let b = temp_wav("eng9b");
+    write_sine_wav(&a, 44_100, 2000);
+    write_sine_wav(&b, 44_100, 300);
+
+    let (mock, _sink) = MockOutput::new(true);
+    let engine = Engine::new(Box::new(mock));
+    engine.set_queue(vec![a.clone()], Some(0));
+    engine.play();
+
+    // 第一首开始播放(消费掉它的 TrackStarted,便于断言第二次)。
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 0 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert!(
+        wait_until(&engine, |e| e.position_ms() > 0, Duration::from_secs(5)),
+        "第一首应实际推进"
+    );
+
+    // 播放中替换队列(不调 play):应立即切到新队列起点 b(index 0)且保持 Playing。
+    engine.set_queue(vec![b.clone(), a.clone()], Some(0));
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 0 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    assert_eq!(engine.state(), PlayState::Playing);
+
+    engine.shutdown();
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}
