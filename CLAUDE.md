@@ -18,7 +18,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M0 | 骨架 + CI(可安装 APK,JNI 打通) | ✅ 2026-10-16 |
 | M1 | Rust 引擎核心(解码/队列/状态机,桌面可测) | ✅ 2026-10-16 |
 | M2 | Android 输出 + 完整 JNI 桥 + 最小播放页 | 🔶 代码完成,待真机验收 |
-| M3 | 播放列表 + 后台播放(MediaSession) | ⬜ |
+| M3 | 播放列表 + 后台播放(MediaSession) | 🔶 代码完成,待真机验收 |
 | M4 | 元数据/封面/seek/播放模式 | ⬜ |
 | M5 | 主题/设置/焦点与耳机体验打磨 | ⬜ |
 | M6 | 签名发布 + GitHub Releases | ⬜ |
@@ -88,8 +88,11 @@ hirust-player/
       └─ src/main/
          ├─ AndroidManifest.xml
          ├─ java/com/hirust/player/
-         │  ├─ MainActivity.kt        # Compose 播放页
-         │  ├─ PlayerViewModel.kt     # UiState/焦点/SAF 落盘
+         │  ├─ MainActivity.kt        # Compose:曲库列表 + 播放控制
+         │  ├─ PlayerViewModel.kt     # MediaStore 扫描 + 命令透传
+         │  ├─ PlaybackService.kt     # MediaSessionService + 焦点 + 事件分发
+         │  ├─ EnginePlayer.kt        # SimpleBasePlayer 包装 AudioBridge
+         │  ├─ PlayerBus.kt           # 全局状态总线 + 队列持久化/恢复
          │  └─ audio/AudioBridge.kt   # JNI 唯一入口 + AudioTrack 宿主
          └─ jniLibs/             # 生成物,不入库
 ```
@@ -179,12 +182,14 @@ adb logcat -s hirust
 - [x] 音频焦点最简实现(永久丢失即暂停,API 26+ 用 AudioFocusRequest)
 - [ ] 验收:真机播 mp3/flac 无爆音;后台短时不断音(CI 出包后装机验证)
 
-### M3 播放列表与后台播放
+### M3 播放列表与后台播放 🔶(2026-10-16 代码完成,待真机验收)
 
-- [ ] MediaStore 扫描 + 播放列表 UI(正在播放指示)
-- [ ] Media3 MediaSessionService:通知/锁屏控制、耳机按键
-- [ ] 前台服务与进程被杀后队列恢复
-- 验收:锁屏可控制;后台连播 ≥30 分钟无中断
+- [x] MediaStore 扫描(READ_MEDIA_AUDIO/旧存储权限,过滤 <10s)+ LazyColumn 曲目列表(正在播放指示,点击播放)
+- [x] Media3 MediaSessionService:通知/锁屏控制、耳机按键(EnginePlayer = SimpleBasePlayer 包装 AudioBridge,仅控制面)
+- [x] 前台服务(mediaPlayback 类型,media3 自动前台化);队列按路径持久化,进程被杀后恢复(暂停态)
+- [x] 音频焦点移交 PlaybackService;PlayerBus 单一状态源(UI 读 / 服务写)
+- [ ] 验收:锁屏可控制;后台连播 ≥30 分钟无中断;划掉任务后播放不中断
+- 备注:恢复不还原播放位置(seek 需先打开解码器);曲目内进度由通知 seekbar 读取 positionMs
 
 ### M4 元数据与播放体验
 

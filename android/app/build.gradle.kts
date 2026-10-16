@@ -12,8 +12,8 @@ android {
         applicationId = "com.hirust.player"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         // 与 rust/Cargo.toml 的 Android 目标保持一致(模拟器为 x86_64)
         ndk {
@@ -57,6 +57,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.media3:media3-session:1.5.1")
 }
 
 /**

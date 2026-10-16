@@ -1,10 +1,15 @@
 package com.hirust.player
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -19,6 +26,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +34,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hirust.player.audio.AudioBridge
 
@@ -34,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        startService(Intent(this, PlaybackService::class.java))
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -44,35 +56,61 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun audioPermissions(): Array<String> {
+    val audio = if (Build.VERSION.SDK_INT >= 33) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        @Suppress("DEPRECATION")
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    return if (Build.VERSION.SDK_INT >= 33) {
+        arrayOf(audio, Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+        arrayOf(audio)
+    }
+}
+
 @Composable
 private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
-    val ui by vm.ui.collectAsState()
+    val ui by vm.state.collectAsState()
+
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants -> if (grants.values.any { it }) vm.scan() }
+
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        val wanted = audioPermissions()
+        val audioGranted = ContextCompat.checkSelfPermission(
+            context,
+            wanted.first(),
+        ) == PackageManager.PERMISSION_GRANTED
+        if (audioGranted) {
+            vm.scan()
+        } else {
+            permLauncher.launch(wanted)
+        }
+    }
 
     Column(
         modifier = Modifier
             .safeDrawingPadding()
-            .padding(24.dp)
+            .padding(horizontal = 24.dp)
             .fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "HiRust Player",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-
-        val picker = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenMultipleDocuments()
-        ) { uris -> vm.loadFromUris(uris) }
-
-        OutlinedButton(onClick = { picker.launch(arrayOf("audio/*")) }) {
-            Text("选择音频文件")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("HiRust Player", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "v${AudioBridge.version()}",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-
-        val title = ui.trackTitles.getOrNull(ui.currentIndex)
-        Text(
-            text = title ?: if (ui.trackTitles.isEmpty()) "队列为空" else "已停止",
-            style = MaterialTheme.typography.titleMedium,
-        )
 
         SeekBar(
             positionMs = ui.positionMs,
@@ -91,7 +129,7 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             OutlinedButton(onClick = vm::next) { Text("⏭") }
         }
 
-        ui.lastError?.let {
+        ui.error?.let {
             Text(
                 text = "错误:$it",
                 color = MaterialTheme.colorScheme.error,
@@ -99,10 +137,63 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             )
         }
 
-        Text(
-            text = "队列 ${ui.trackTitles.size} 首 · Rust 引擎 ${AudioBridge.version()}",
-            style = MaterialTheme.typography.bodySmall,
+        TrackList(
+            tracks = ui.tracks,
+            currentIndex = ui.currentIndex,
+            playing = ui.playing,
+            onPick = vm::playAt,
+            modifier = Modifier.weight(1f),
         )
+    }
+}
+
+@Composable
+private fun TrackList(
+    tracks: List<Track>,
+    currentIndex: Int,
+    playing: Boolean,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (tracks.isEmpty()) {
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("曲库为空", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "授予音频权限后将自动扫描设备音乐库",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
+    LazyColumn(modifier = modifier) {
+        itemsIndexed(tracks, key = { _, t -> t.path }) { index, track ->
+            val current = index == currentIndex
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(index) }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (current && playing) "▶" else if (current) "⏸" else "",
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (current) FontWeight.Bold else null,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "${track.artist.ifEmpty { "未知艺人" }} · ${formatMs(track.durationMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
     }
 }
 
