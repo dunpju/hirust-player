@@ -69,6 +69,16 @@ fn pump(vm: Arc<JavaVM>, class: GlobalRef, events: Receiver<EngineEvent>) {
         if let Err(e) = result {
             warn!("事件回调失败: {e}");
         }
+
+        // 防御:未清理的 pending exception 会让本线程后续所有 JNI 调用永久失败
+        // (症状即"事件链整体死亡,仅剩主动轮询可用"),每条事件后检查并清理。
+        match env.exception_check() {
+            Ok(true) => {
+                let _ = env.exception_clear();
+            }
+            Ok(false) => {}
+            Err(e) => warn!("exception_check 失败: {e}"),
+        }
     }
 }
 

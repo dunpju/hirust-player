@@ -117,10 +117,15 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         }
     }
 
-    // 回前台时与引擎对齐(后台切歌事件可能丢失:服务/Activity 重建、进程冻结窗口)。
+    // 前台期间与引擎保持对齐:回前台立即同步一次并开启 2Hz 轮询兜底
+    // (后台切歌事件可能丢失:服务/Activity 重建、进程冻结窗口);切后台停止轮询。
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) vm.syncFromEngine()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> vm.startPolling()
+                Lifecycle.Event.ON_PAUSE -> vm.stopPolling()
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

@@ -201,6 +201,27 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     /** 回前台对齐引擎状态(见 PlayerBus.syncFromEngine)。 */
     fun syncFromEngine() = PlayerBus.syncFromEngine()
 
+    /**
+     * 前台期间周期轮询引擎状态(2Hz):兜底事件链中断(服务重建/异常毒化等)。
+     * 事件泵正常时事件仍主导实时性,轮询仅做校正,开销可忽略。
+     */
+    fun startPolling() {
+        if (pollJob?.isActive == true) return
+        pollJob = viewModelScope.launch {
+            while (true) {
+                PlayerBus.syncFromEngine()
+                kotlinx.coroutines.delay(500)
+            }
+        }
+    }
+
+    fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
+    }
+
+    private var pollJob: kotlinx.coroutines.Job? = null
+
     /** 点播当前视图中的曲目。 */
     fun playAt(index: Int) = PlayerBus.playFromView(index)
 
