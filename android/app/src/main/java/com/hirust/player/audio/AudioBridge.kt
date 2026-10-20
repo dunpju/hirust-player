@@ -197,7 +197,8 @@ object AudioBridge {
     @JvmStatic
     fun outputSetSpeed(speed: Float) {
         val t = track ?: return
-        val wasPaused = !t.isPlaying
+        // AudioTrack 无 isPlaying();用 playState 判断(getPlayState)。
+        val wasPaused = t.playState != AudioTrack.PLAYSTATE_PLAYING
         runCatching {
             t.playbackParams = t.playbackParams.setSpeed(speed)
             // setPlaybackParams 在暂停态会隐式启动播放,这里恢复暂停。
