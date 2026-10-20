@@ -21,7 +21,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M3 | 播放列表 + 后台播放(MediaSession) | ✅ 2026-10-16 真机验收通过 |
 | M4 | 元数据/封面/seek/播放模式 | ✅ 2026-10-16 真机验收通过 |
 | M5 | 主题/设置/焦点与耳机体验打磨 | ✅ 2026-10-16 真机验收通过 |
-| M6 | 签名发布 + GitHub Releases | 🔶 APK 验收通过;待推 tag 出首个 Release |
+| M6 | 签名发布 + GitHub Releases | ✅ 2026-10-20 首个 Release v0.8.0 已发布 |
 
 ## 3. 架构总览
 
@@ -220,7 +220,7 @@ adb logcat -s hirust
 - [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
 - [x] 格式评估(实证):symphonia 0.5.5 无 opus/ape/wavpack;且默认 feature 不含 mp3/aac → 已显式开启 mp3/aac/isomp4/opt-simd(修复 M0 以来的隐性缺口)
 - [x] R8 后真机回归(JNI 加载、播放、封面)✅(2026-10-16 真机通过)
-- [ ] 配置 Secrets 后推 tag,Release 页出现签名 APK(待执行,步骤见 README「发布」;未配 Secrets 时推 tag 会以 debug 签名出包)
+- [x] 推 tag `v0.8.0` → Release 工作流全绿,Releases 页发布 `hirust-player-v0.8.0.apk`(2026-10-20;Secrets 已配为正式签名,未配自动退 debug 签名)
 - 补充(M6 后):应用图标落地(adaptive icon,26+ 蒙版自适应;24/25 layer-list 兜底;全 XML 无 PNG);CI 修复见 M0 修正记录
 - 密钥生成与 Secrets 配置步骤见 README「发布」
 
