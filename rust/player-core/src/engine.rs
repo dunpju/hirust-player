@@ -54,6 +54,8 @@ pub enum Command {
     SetShuffle(bool),
     /// 输出音量 [0,1],线性缩放(引擎线程应用,不进音频回调)。
     SetVolume(f32),
+    /// 播放速率(1.0 = 常速;引擎转发输出后端,切曲后自动重放)。
+    SetSpeed(f32),
     Shutdown,
 }
 
@@ -169,6 +171,11 @@ impl Engine {
         self.send(Command::SetVolume(volume));
     }
 
+    /// 设置播放速率(超界钳制到 [0.25, 3.0])。
+    pub fn set_speed(&self, speed: f32) {
+        self.send(Command::SetSpeed(speed));
+    }
+
     /// 非阻塞取一条事件。
     pub fn try_event(&self) -> Option<EngineEvent> {
         self.events.try_recv().ok()
@@ -239,6 +246,7 @@ fn run(
         volume: 1.0,
         scratch: Vec::new(),
         open_failures: 0,
+        speed: 1.0,
     };
 
     'outer: loop {
@@ -286,6 +294,8 @@ struct Worker {
     scratch: Vec<f32>,
     /// 连续打开失败的曲目数(成功清零;达队列长度则结束队列)。
     open_failures: usize,
+    /// 播放速率(切曲后需向输出重放)。
+    speed: f32,
 }
 
 impl Worker {
@@ -354,6 +364,13 @@ impl Worker {
             Command::SetRepeat(mode) => self.queue.set_repeat_mode(mode),
             Command::SetShuffle(on) => self.queue.set_shuffle(on),
             Command::SetVolume(v) => self.volume = v.clamp(0.0, 1.0),
+            Command::SetSpeed(v) => {
+                let v = v.clamp(0.25, 3.0);
+                self.speed = v;
+                if let Err(e) = self.output.set_speed(v) {
+                    self.emit_error(etx, format!("设置速率失败: {e}"));
+                }
+            }
         }
         true
     }
@@ -431,6 +448,12 @@ impl Worker {
                 if !autoplay {
                     if let Err(e) = self.output.suspend() {
                         self.emit_error(etx, format!("挂起输出失败: {e}"));
+                    }
+                }
+                // 输出流按曲新建、速率归 1,非默认速率需重放。
+                if (self.speed - 1.0).abs() > f32::EPSILON {
+                    if let Err(e) = self.output.set_speed(self.speed) {
+                        self.emit_error(etx, format!("重放速率失败: {e}"));
                     }
                 }
                 self.open_failures = 0;

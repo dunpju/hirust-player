@@ -410,3 +410,56 @@ fn engine_current_index_follows_queue() {
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
 }
+
+#[test]
+fn speed_applied_and_replayed_after_track_change() {
+    let a = temp_wav("eng11a");
+    let b = temp_wav("eng11b");
+    write_sine_wav(&a, 44_100, 1500);
+    write_sine_wav(&b, 44_100, 1500);
+
+    let (mock, sink) = MockOutput::new(true);
+    let engine = Engine::new(Box::new(mock));
+    engine.set_queue(vec![a.clone(), b.clone()], Some(0));
+    engine.play();
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 0 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+
+    // 设置倍速:转发到输出后端。
+    engine.set_speed(1.5f32);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while (sink.last_speed() - 1.5).abs() > 1e-6 {
+        assert!(
+            Instant::now() < deadline,
+            "速率未生效: {}",
+            sink.last_speed()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    // 切歌:输出流新建,引擎应重放非默认速率。
+    engine.next();
+    assert!(wait_event(
+        &engine,
+        |ev| matches!(ev, EngineEvent::TrackStarted { index: 1 }),
+        Duration::from_secs(5)
+    )
+    .is_some());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while (sink.last_speed() - 1.5).abs() > 1e-6 {
+        assert!(
+            Instant::now() < deadline,
+            "切歌后速率未重放: {}",
+            sink.last_speed()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    engine.shutdown();
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}

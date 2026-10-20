@@ -388,3 +388,13 @@ pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_queueIndex(
 ) -> jint {
     query_engine(-1, |e| e.current_index().map(|i| i as jint).unwrap_or(-1))
 }
+
+/// 设置播放速率(1.0 = 常速;引擎转发输出后端,切曲后自动重放)。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hirust_player_audio_AudioBridge_setSpeed(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    speed: jfloat,
+) {
+    with_engine(move |e| e.set_speed(speed));
+}

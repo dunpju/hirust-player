@@ -156,6 +156,7 @@ adb logcat -s hirust
 | `onStateChanged` / `onPositionChanged` / `onTrackStarted` / `onTrackEnded` / `onQueueEnded` / `onError` | R→K 回调 | ✅ M2 |
 | `outputStart/Write/Suspend/Resume/Stop`(AudioTrack 宿主) | R→K | ✅ M2 |
 | `setVolume(v)` / `trackInfo(path)` / `trackCover(path)` | K↔R | ✅ M4 |
+| `setSpeed(v)` / `outputSetSpeed`(AudioTrack 宿主) | K↔R | ✅ 0.8.0 |
 
 ## 9. 开发计划(里程碑明细)
 
@@ -240,6 +241,14 @@ adb logcat -s hirust
 - [x] 修复:后台切歌回前台 UI 停在上一首(曲目/时间/高亮全卡)——此前引擎状态只有事件单向推送、无查询通道,丢事件即永久失联。新增 JNI `queueIndex()`(Engine.current_index,Shared 原子变量);`PlayerBus.syncFromEngine()` 拉权威状态;列表自动滚动到正在播放曲目(+1 桌面测试,共 24 用例)
 - [x] 修复:回前台后进度卡住不动(仅再切一次后台才更新)——两层:① Rust 事件泵每条事件后检查并清理 pending exception(未清理的异常会毒化线程后续所有 JNI 调用,表现为事件链整体死亡);② 前台期间 2Hz 轮询引擎状态兜底(`startPolling/stopPolling`,ON_RESUME/PAUSE 驱动;§11 规范豁免的节流位置轮询),事件泵正常时仍主导实时性
 - [ ] 验收:添加含 mp3/flac 的目录 → 列表正确、元数据完整;播放中切到其他列表不打断;**播放中点选同列表其他曲目立即切换**;混入损坏文件自动跳过;重启后文件夹仍在;播放页总时长与曲目一致;拖动进度无回弹、时间跟随;**后台切歌回前台 UI 正确跟随(标题/时间/高亮/滚动,进度持续前进)**
+
+#### 倍速播放(0.8.0,2026-10-20)🔶 待真机验收
+
+- 需求:0.5/1.0/1.5/2.0 倍速,默认 1.0;按钮在下一曲右侧,播放三键靠左腾位
+- [x] 链路:UI 档位循环(PlayerBus.SPEED_STEPS)→ JNI `setSpeed` → 引擎 `Command::SetSpeed`(clamp 0.25–3.0)→ `AudioOutput::set_speed` → Kotlin `outputSetSpeed`(AudioTrack PlaybackParams,平台变速+音调补偿)
+- [x] 切曲自动重放速率(输出流按曲新建归 1.0,open_current 非默认速率重放);暂停态设置倍速不触发播放(setPlaybackParams 隐式启动的坑已防护)
+- [x] MockOutput 记录速率,SampleSink.last_speed 可断言;+1 桌面测试(生效+切歌重放),共 25 用例
+- [ ] 验收:四档即时切换、音调正常;切歌保持倍速;暂停中切倍速不自行播放;位置推进与倍速一致(2.0× 时进度条每秒走 2 秒)
 
 ## 10. CI(GitHub Actions)
 

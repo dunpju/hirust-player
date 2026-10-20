@@ -40,21 +40,44 @@ pub trait AudioOutput: Send {
 
     /// 完全停止并释放流资源。
     fn stop(&mut self) -> Result<(), OutputError>;
+
+    /// 设置播放速率(1.0 = 常速)。
+    ///
+    /// 后端负责实际变速与音调补偿(如 AudioTrack PlaybackParams);
+    /// 输出流按曲新建,引擎会在每曲 `start` 后以当前速率重放,实现方无需跨流记忆。
+    fn set_speed(&mut self, speed: f32) -> Result<(), OutputError>;
 }
 
 /// 模拟输出的采样记录句柄,供测试断言。
-#[derive(Clone, Default)]
-pub struct SampleSink(Arc<Mutex<Vec<f32>>>);
+#[derive(Clone)]
+pub struct SampleSink {
+    samples: Arc<Mutex<Vec<f32>>>,
+    speed: Arc<Mutex<f32>>,
+}
+
+impl Default for SampleSink {
+    fn default() -> Self {
+        Self {
+            samples: Arc::new(Mutex::new(Vec::new())),
+            speed: Arc::new(Mutex::new(1.0)),
+        }
+    }
+}
 
 impl SampleSink {
     /// 已写入的样本总数(所有声道交织计数)。
     pub fn total_samples(&self) -> usize {
-        self.0.lock().map(|s| s.len()).unwrap_or(0)
+        self.samples.lock().map(|s| s.len()).unwrap_or(0)
     }
 
     /// 当前已写入样本的拷贝(测试断言用)。
     pub fn snapshot(&self) -> Vec<f32> {
-        self.0.lock().map(|s| s.clone()).unwrap_or_default()
+        self.samples.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// 最近一次设置的播放速率(测试断言用)。
+    pub fn last_speed(&self) -> f32 {
+        self.speed.lock().map(|s| *s).unwrap_or(1.0)
     }
 }
 
@@ -71,6 +94,7 @@ pub struct MockOutput {
     started: bool,
     suspended: bool,
     samples: Arc<Mutex<Vec<f32>>>,
+    speed: Arc<Mutex<f32>>,
 }
 
 impl MockOutput {
@@ -84,7 +108,8 @@ impl MockOutput {
                 channels: 2,
                 started: false,
                 suspended: false,
-                samples: sink.0.clone(),
+                samples: Arc::clone(&sink.samples),
+                speed: Arc::clone(&sink.speed),
             },
             sink,
         )
@@ -127,6 +152,13 @@ impl AudioOutput for MockOutput {
 
     fn stop(&mut self) -> Result<(), OutputError> {
         self.started = false;
+        Ok(())
+    }
+
+    fn set_speed(&mut self, speed: f32) -> Result<(), OutputError> {
+        if let Ok(mut s) = self.speed.lock() {
+            *s = speed;
+        }
         Ok(())
     }
 }

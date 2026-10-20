@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -168,16 +169,21 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             onSeek = vm::seekTo,
         )
 
-        // 播放三键独立一行,避免窄屏挤压(此前 5 键一行,末尾按钮被压成竖椭圆)。
+        // 播放三键靠左,右侧放倍速按钮(用户指定布局;单行不溢出)。
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedButton(onClick = vm::prev) { Text("⏮") }
             Button(onClick = { if (ui.playing) vm.pause() else vm.play() }) {
                 Text(if (ui.playing) "⏸ 暂停" else "▶ 播放")
             }
             OutlinedButton(onClick = vm::next) { Text("⏭") }
+            Spacer(modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = { vm.cycleSpeed() }) {
+                Text("%.1f×".format(ui.speed))
+            }
         }
 
         Row(

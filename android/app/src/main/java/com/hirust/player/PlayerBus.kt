@@ -59,6 +59,8 @@ data class BusState(
     val repeatMode: Int = 0,
     val shuffle: Boolean = false,
     val volume: Float = 1.0f,
+    /** 播放速率档位(0.5/1.0/1.5/2.0)。 */
+    val speed: Float = 1.0f,
     val error: String? = null,
 ) {
     companion object {
@@ -155,6 +157,23 @@ object PlayerBus {
     }
 
     fun toggleShuffle() = setShuffle(!state.value.shuffle)
+
+    /** 倍速档位(循环顺序)。 */
+    val SPEED_STEPS = floatArrayOf(0.5f, 1.0f, 1.5f, 2.0f)
+
+    /** 设置播放速率。 */
+    fun setSpeed(speed: Float) {
+        val v = speed.coerceIn(0.5f, 2.0f)
+        AudioBridge.setSpeed(v)
+        update { it.copy(speed = v) }
+    }
+
+    /** 循环切换倍速:0.5 → 1.0 → 1.5 → 2.0 → 0.5。 */
+    fun cycleSpeed() {
+        val cur = state.value.speed
+        val next = SPEED_STEPS.firstOrNull { it > cur + 0.01f } ?: SPEED_STEPS.first()
+        setSpeed(next)
+    }
 
     /** seek 并乐观更新位置(引擎处理完会立即发精确位置事件校正)。 */
     fun seekTo(ms: Long) {

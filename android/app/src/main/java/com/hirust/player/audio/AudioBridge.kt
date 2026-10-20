@@ -84,6 +84,9 @@ object AudioBridge {
     external fun setShuffle(on: Boolean)
     external fun setVolume(volume: Float)
 
+    /** 设置播放速率(1.0 = 常速;切曲后由引擎自动重放)。 */
+    external fun setSpeed(speed: Float)
+
     /** 读取曲目标签,JSON:{"title":..,"artist":..,"album":..,"durationMs":N}(空字段省略)。 */
     external fun trackInfo(path: String): String
 
@@ -188,5 +191,17 @@ object AudioBridge {
             }
         }
         track = null
+    }
+
+    /** Rust JniOutput 转发的倍速:AudioTrack PlaybackParams(平台变速+音调补偿)。 */
+    @JvmStatic
+    fun outputSetSpeed(speed: Float) {
+        val t = track ?: return
+        val wasPaused = !t.isPlaying
+        runCatching {
+            t.playbackParams = t.playbackParams.setSpeed(speed)
+            // setPlaybackParams 在暂停态会隐式启动播放,这里恢复暂停。
+            if (wasPaused) t.pause()
+        }
     }
 }

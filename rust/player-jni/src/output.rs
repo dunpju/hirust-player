@@ -92,6 +92,21 @@ impl AudioOutput for JniOutput {
     fn stop(&mut self) -> Result<(), OutputError> {
         call_void(self, "outputStop")
     }
+
+    /// 倍速转发 Kotlin 宿主(AudioTrack PlaybackParams,平台负责变速与音调补偿)。
+    fn set_speed(&mut self, speed: f32) -> Result<(), OutputError> {
+        let result = (|| -> jni::errors::Result<()> {
+            let mut env = self.vm.attach_current_thread()?;
+            let class: &JClass<'_> = self.class.as_obj().into();
+            env.call_static_method(class, "outputSetSpeed", "(F)V", &[JValue::Float(speed)])
+                .and_then(|v| v.v())
+        })();
+
+        result.map_err(|e| {
+            warn!("outputSetSpeed JNI 调用失败: {e}");
+            OutputError::Io(format!("outputSetSpeed: {e}"))
+        })
+    }
 }
 
 fn call_void(out: &JniOutput, method: &str) -> Result<(), OutputError> {

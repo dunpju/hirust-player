@@ -237,5 +237,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleShuffle() = PlayerBus.toggleShuffle()
 
+    /** 循环切换倍速(0.5 → 1.0 → 1.5 → 2.0 → 0.5)。 */
+    fun cycleSpeed() = PlayerBus.cycleSpeed()
+
     fun setVolume(volume: Float) = PlayerBus.setVolume(volume)
 }
