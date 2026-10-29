@@ -250,6 +250,14 @@ adb logcat -s hirust
 - [x] MockOutput 记录速率,SampleSink.last_speed 可断言;+1 桌面测试(生效+切歌重放),共 25 用例
 - [ ] 验收:四档即时切换、音调正常;切歌保持倍速;暂停中切倍速不自行播放;位置推进与倍速一致(2.0× 时进度条每秒走 2 秒)
 
+#### 播放记录——重开定位上次目录(0.9.0,2026-10-29)🔶 待真机验收
+
+- 需求:杀进程重开 App,自动定位到**上次播放目录**的列表并高亮上次曲目;目录不存在才默认「全部音乐」
+- [x] 持久化队列来源(KEY_SOURCE,空串=全部;随 TrackStarted 的 persist 一并保存)
+- [x] 恢复:restoreQueue 写回真实来源(移除 RESTORED 哨兵——视图与来源一致时高亮/滚动到上次曲目,一致前不误高亮);`restoreLastView()` 在权限就绪后打开上次文件夹(等待服务恢复文件夹列表,最多 2s;目录不存在则不动,由 scan 落到全部)
+- [x] 时序:restoreLastView 先于 scan(scan 仅在 viewSource==null 时设全部,不覆盖已恢复的文件夹视图)
+- [ ] 验收:文件夹列表中播放 → 杀进程重开 → 自动打开该文件夹、高亮滚动到上次曲目、NowPlaying 显示上次队列(暂停态);「全部音乐」播放重开 → 停在全部;删除该文件夹后重开 → 回落到全部
+
 ## 10. CI(GitHub Actions)
 
 `.github/workflows/ci.yml`,触发:push 到 main / PR / 手动(workflow_dispatch)。另有 `.github/workflows/release.yml`:推 tag `v*` 触发签名发布。

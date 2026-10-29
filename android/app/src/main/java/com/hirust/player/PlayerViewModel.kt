@@ -202,6 +202,23 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun syncFromEngine() = PlayerBus.syncFromEngine()
 
     /**
+     * 播放记录:恢复上次播放的视图(目录仍在则打开该文件夹列表,高亮并滚动到
+     * 上次曲目;目录不存在回落「全部音乐」——由随后的 scan 兜底)。
+     */
+    fun restoreLastView() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val source = PlayerBus.savedSource ?: return@launch
+            // 等待服务恢复文件夹列表(启动竞态,最多 2s)。
+            val deadline = System.currentTimeMillis() + 2_000
+            while (PlayerBus.state.value.folders.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(100)
+            }
+            val folder = PlayerBus.state.value.folders.firstOrNull { it.path == source }
+            if (folder != null) openFolderInternal(folder)
+        }
+    }
+
+    /**
      * 前台期间周期轮询引擎状态(2Hz):兜底事件链中断(服务重建/异常毒化等)。
      * 事件泵正常时事件仍主导实时性,轮询仅做校正,开销可忽略。
      */

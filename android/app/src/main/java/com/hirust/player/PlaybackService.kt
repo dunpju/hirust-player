@@ -143,7 +143,7 @@ class PlaybackService : MediaSessionService() {
         if (PlayerBus.state.value.tracks.isNotEmpty()) return
         val restored = PlayerBus.restore(applicationContext)
         if (restored.isEmpty()) return
-        PlayerBus.restoreQueue(restored, PlayerBus.savedIndex)
+        PlayerBus.restoreQueue(restored, PlayerBus.savedIndex, PlayerBus.savedSource)
         // 队列恢复属异步命令,同步一次引擎权威状态兜底(服务重启丢事件窗口)。
         PlayerBus.syncFromEngine()
     }

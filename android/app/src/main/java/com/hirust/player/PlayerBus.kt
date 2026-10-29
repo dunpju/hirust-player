@@ -47,8 +47,8 @@ data class BusState(
     val view: List<Track> = emptyList(),
     /** 视图来源:null = 全部音乐,否则为文件夹路径。 */
     val viewSource: String? = null,
-    /** 队列来源:同上;恢复场景为哨兵值(不与任何视图相等,避免错误高亮)。 */
-    val queueSource: String? = RESTORED,
+    /** 队列来源:同上;恢复时写回持久化的来源(视图与来源一致即高亮上次曲目)。 */
+    val queueSource: String? = null,
     /** 已添加的文件夹播放列表。 */
     val folders: List<Folder> = emptyList(),
     val currentIndex: Int = -1,
@@ -62,12 +62,7 @@ data class BusState(
     /** 播放速率档位(0.5/1.0/1.5/2.0)。 */
     val speed: Float = 1.0f,
     val error: String? = null,
-) {
-    companion object {
-        /** 进程被杀恢复的队列来源哨兵。 */
-        const val RESTORED = "\u0000restored"
-    }
-}
+)
 
 /**
  * 播放状态总线:PlaybackService 写、UI 读;StateFlow 线程安全。
@@ -80,12 +75,17 @@ object PlayerBus {
     private const val KEY_TITLES = "titles"
     private const val KEY_INDEX = "index"
     private const val KEY_FOLDERS = "folders"
+    private const val KEY_SOURCE = "queue_source"
     private const val SEP = "\n"
 
     val state: StateFlow<BusState> = MutableStateFlow(BusState())
 
     /** 恢复时最近一次保存的曲目下标。 */
     var savedIndex: Int = 0
+        private set
+
+    /** 恢复时最近一次保存的队列来源(null = 全部音乐;目录不存在则回落全部)。 */
+    var savedSource: String? = null
         private set
 
     fun update(f: (BusState) -> BusState) {
@@ -138,10 +138,10 @@ object PlayerBus {
         AudioBridge.play()
     }
 
-    /** 进程被杀后恢复队列(暂停态,来源为哨兵)。 */
-    fun restoreQueue(tracks: List<Track>, index: Int) {
+    /** 进程被杀后恢复队列(暂停态;来源写回持久化值,与视图一致时高亮上次曲目)。 */
+    fun restoreQueue(tracks: List<Track>, index: Int, source: String?) {
         AudioBridge.setQueue(tracks.map { it.path }.toTypedArray(), index)
-        update { it.copy(tracks = tracks, queueSource = BusState.RESTORED, currentIndex = -1) }
+        update { it.copy(tracks = tracks, queueSource = source, currentIndex = -1) }
     }
 
     /** 设置循环模式(同时下发引擎并更新状态)。 */
@@ -231,6 +231,8 @@ object PlayerBus {
             .putString(KEY_PATHS, s.tracks.joinToString(SEP) { it.path })
             .putString(KEY_TITLES, s.tracks.joinToString(SEP) { it.title })
             .putInt(KEY_INDEX, s.currentIndex.coerceAtLeast(0))
+            // 播放记录:队列来源一并持久化(null = 全部 → 空串)。
+            .putString(KEY_SOURCE, s.queueSource ?: "")
             .apply()
     }
 
@@ -239,6 +241,7 @@ object PlayerBus {
         val paths = prefs.getString(KEY_PATHS, null)?.split(SEP) ?: return emptyList()
         val titles = prefs.getString(KEY_TITLES, null)?.split(SEP) ?: emptyList()
         savedIndex = prefs.getInt(KEY_INDEX, 0)
+        savedSource = prefs.getString(KEY_SOURCE, "")?.takeIf { it.isNotBlank() }
         return paths.mapIndexedNotNull { i, path ->
             val file = File(path)
             if (file.canRead()) {

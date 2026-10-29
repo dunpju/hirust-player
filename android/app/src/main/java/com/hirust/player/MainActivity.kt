@@ -96,7 +96,12 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants -> if (grants.values.any { it }) vm.scan() }
+    ) { grants ->
+        if (grants.values.any { it }) {
+            vm.restoreLastView()
+            vm.scan()
+        }
+    }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -112,6 +117,7 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             wanted.first(),
         ) == PackageManager.PERMISSION_GRANTED
         if (audioGranted) {
+            vm.restoreLastView()
             vm.scan()
         } else {
             permLauncher.launch(wanted)
