@@ -88,6 +88,12 @@ object PlayerBus {
     var savedSource: String? = null
         private set
 
+    /** 直接读取持久化的上次队列来源(null = 全部);不依赖服务 restore 时序。 */
+    fun lastSource(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_SOURCE, null)
+            ?.takeIf { it.isNotBlank() }
+
     fun update(f: (BusState) -> BusState) {
         (state as MutableStateFlow).value = f(state.value)
     }

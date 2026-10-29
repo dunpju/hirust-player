@@ -206,8 +206,11 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
      * 上次曲目;目录不存在回落「全部音乐」——由随后的 scan 兜底)。
      */
     fun restoreLastView() {
+        val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
-            val source = PlayerBus.savedSource ?: return@launch
+            // 直接读 prefs:savedSource 由服务 restore() 异步填充,
+            // 冷启动时本协程可能先于其执行,读内存值会拿到 null 而误退。
+            val source = PlayerBus.lastSource(ctx) ?: return@launch
             // 等待服务恢复文件夹列表(启动竞态,最多 2s)。
             val deadline = System.currentTimeMillis() + 2_000
             while (PlayerBus.state.value.folders.isEmpty() && System.currentTimeMillis() < deadline) {

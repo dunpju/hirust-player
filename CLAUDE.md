@@ -257,6 +257,7 @@ adb logcat -s hirust
 - [x] 恢复:restoreQueue 写回真实来源(移除 RESTORED 哨兵——视图与来源一致时高亮/滚动到上次曲目,一致前不误高亮);`restoreLastView()` 在权限就绪后打开上次文件夹(等待服务恢复文件夹列表,最多 2s;目录不存在则不动,由 scan 落到全部)
 - [x] 时序:restoreLastView 先于 scan(scan 仅在 viewSource==null 时设全部,不覆盖已恢复的文件夹视图)
 - [x] 修复:重开后 NowPlaying 显示「未在播放」——引擎 `current_index` 原本仅在解码器打开时写入,恢复态(暂停未播放)查询恒为 -1。现 SetQueue 即写入队列逻辑位置(+1 桌面测试,共 26 用例);restoreQueue 直接写钳制后的持久化下标;移除启动时与 setQueue 竞态的 syncFromEngine(ON_RESUME 轮询兜底)
+- [x] 修复:重开后标题正确但视图落在「全部音乐」且无高亮滚动——`restoreLastView` 冷启动时可能先于服务 `restore()` 执行,内存版 `savedSource` 尚为 null 即误退。改为直接读 prefs(`PlayerBus.lastSource(ctx)`),不依赖服务时序;文件夹等待循环保持在读源之后
 - [ ] 验收:文件夹列表中播放 → 杀进程重开 → 自动打开该文件夹、高亮滚动到上次曲目、NowPlaying 显示上次队列(暂停态);「全部音乐」播放重开 → 停在全部;删除该文件夹后重开 → 回落到全部
 
 ## 10. CI(GitHub Actions)
