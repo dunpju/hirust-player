@@ -463,3 +463,27 @@ fn speed_applied_and_replayed_after_track_change() {
     let _ = std::fs::remove_file(&a);
     let _ = std::fs::remove_file(&b);
 }
+
+#[test]
+fn queue_index_available_before_playback() {
+    // 恢复场景:setQueue 指定起点但不播放,queue_index 应立即可查。
+    let a = temp_wav("eng12a");
+    let b = temp_wav("eng12b");
+    write_sine_wav(&a, 44_100, 300);
+    write_sine_wav(&b, 44_100, 300);
+
+    let (mock, _sink) = MockOutput::new(false);
+    let engine = Engine::new(Box::new(mock));
+    engine.set_queue(vec![a.clone(), b.clone()], Some(1));
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while engine.current_index() != Some(1) {
+        assert!(Instant::now() < deadline, "未播放状态下队列下标应可查");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(engine.state(), PlayState::Stopped);
+
+    engine.shutdown();
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}

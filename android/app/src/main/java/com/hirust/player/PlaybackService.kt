@@ -144,8 +144,9 @@ class PlaybackService : MediaSessionService() {
         val restored = PlayerBus.restore(applicationContext)
         if (restored.isEmpty()) return
         PlayerBus.restoreQueue(restored, PlayerBus.savedIndex, PlayerBus.savedSource)
-        // 队列恢复属异步命令,同步一次引擎权威状态兜底(服务重启丢事件窗口)。
-        PlayerBus.syncFromEngine()
+        // 注:此处不再 syncFromEngine——setQueue 是异步命令,立刻查询会读到旧值
+        // 覆盖刚写入的下标;ON_RESUME 的轮询兜底会随后对齐(引擎已改为队列
+        // 逻辑位置立即可查,轮询读到的即是恢复下标)。
     }
 
     // ---- 音频焦点(分级:永久丢失暂停 / 瞬时丢失可恢复 / 可压低降音量) ----

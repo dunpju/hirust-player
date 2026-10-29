@@ -138,10 +138,15 @@ object PlayerBus {
         AudioBridge.play()
     }
 
-    /** 进程被杀后恢复队列(暂停态;来源写回持久化值,与视图一致时高亮上次曲目)。 */
+    /** 进程被杀后恢复队列(暂停态;直接写持久化下标——恢复态没有 TrackStarted 事件)。 */
     fun restoreQueue(tracks: List<Track>, index: Int, source: String?) {
+        if (tracks.isEmpty()) return
         AudioBridge.setQueue(tracks.map { it.path }.toTypedArray(), index)
-        update { it.copy(tracks = tracks, queueSource = source, currentIndex = -1) }
+        // 下标钳制(恢复场景持久化值可能越界)。
+        val clamped = index.coerceIn(0, tracks.lastIndex)
+        update {
+            it.copy(tracks = tracks, queueSource = source, currentIndex = clamped)
+        }
     }
 
     /** 设置循环模式(同时下发引擎并更新状态)。 */

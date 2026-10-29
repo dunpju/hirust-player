@@ -311,6 +311,11 @@ impl Worker {
                 let items = items.into_iter().map(|path| QueueItem { path }).collect();
                 let was_active = self.decoder.is_some();
                 self.queue.set_items(items, start);
+                // 队列逻辑位置立即可查(恢复态未开解码器,UI 的 NowPlaying/高亮依赖此值)。
+                shared.current_index.store(
+                    self.queue.current().map(|i| i as i64).unwrap_or(-1),
+                    Ordering::Relaxed,
+                );
                 if was_active {
                     // 播放/暂停中替换队列:立即切到新起点曲目并保持播放状态,
                     // 否则后续 play() 在 Playing 态是 no-op,表现为点歌无响应。
