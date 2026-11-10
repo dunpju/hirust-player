@@ -141,12 +141,11 @@ class PlaybackService : MediaSessionService() {
 
     private fun restoreQueueIfNeeded() {
         if (PlayerBus.state.value.tracks.isNotEmpty()) return
-        val restored = PlayerBus.restore(applicationContext)
-        if (restored.isEmpty()) return
-        PlayerBus.restoreQueue(restored, PlayerBus.savedIndex, PlayerBus.savedSource)
-        // 注:此处不再 syncFromEngine——setQueue 是异步命令,立刻查询会读到旧值
-        // 覆盖刚写入的下标;ON_RESUME 的轮询兜底会随后对齐(引擎已改为队列
-        // 逻辑位置立即可查,轮询读到的即是恢复下标)。
+        // 双域播放记录:加载(含旧单域迁移)并恢复活动域队列(暂停态)。
+        PlayerBus.loadHistory(applicationContext)
+        PlayerBus.restoreActiveDomain(applicationContext)
+        // 注:此处不 syncFromEngine——setQueue 是异步命令,立刻查询会读到旧值;
+        // restoreQueue 已直接写入钳制下标,ON_RESUME 轮询随后对齐。
     }
 
     // ---- 音频焦点(分级:永久丢失暂停 / 瞬时丢失可恢复 / 可压低降音量) ----

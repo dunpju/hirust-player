@@ -76,6 +76,7 @@ object PlayerBus {
     private const val KEY_INDEX = "index"
     private const val KEY_FOLDERS = "folders"
     private const val KEY_SOURCE = "queue_source"
+    private const val KEY_LAST_DOMAIN = "last_domain"
     private const val SEP = "\n"
 
     val state: StateFlow<BusState> = MutableStateFlow(BusState())
@@ -232,21 +233,130 @@ object PlayerBus {
         AudioBridge.setVolume(effective)
     }
 
-    // ---- 队列持久化(路径 + 标题 + 当前下标;恢复时校验文件仍可读) ----
+    // ---- 播放记录:音乐/录音两域独立持久化(互不影响) ----
 
+    /** 一个域的持久化队列(恢复时校验文件仍可读)。 */
+    data class SavedQueue(
+        val tracks: List<Track>,
+        val index: Int,
+        /** null = 全部音乐;录音域为 Recordings 目录路径。 */
+        val source: String?,
+    )
+
+    /** 音乐域上次队列(全部音乐或某文件夹)。 */
+    var musicCtx: SavedQueue? = null
+        private set
+
+    /** 录音域上次队列。 */
+    var recCtx: SavedQueue? = null
+        private set
+
+    /** 上次活动域(true = 录音);冷启动据此恢复视图与队列。 */
+    var lastDomainIsRecording: Boolean = false
+        private set
+
+    private var historyLoaded = false
+
+    /** 服务启动时加载双域记录(含旧单域 KEY_PATHS 的一次性迁移)。 */
+    fun loadHistory(context: Context) {
+        if (historyLoaded) return
+        historyLoaded = true
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        musicCtx = readQueue(prefs, "music_")
+        recCtx = readQueue(prefs, "rec_")
+
+        if (musicCtx == null && recCtx == null && prefs.getString(KEY_PATHS, null) != null) {
+            // 旧单域记录迁移:按来源归类到对应域。
+            val legacy = restore(context)
+            if (legacy.isNotEmpty()) {
+                val isRec = savedSource == Recorder.dir(context).absolutePath
+                val sq = SavedQueue(legacy, savedIndex, savedSource)
+                if (isRec) recCtx = sq else musicCtx = sq
+                writeQueue(prefs.edit(), if (isRec) "rec_" else "music_", sq)
+                    .putString(KEY_LAST_DOMAIN, if (isRec) "rec" else "music")
+                    .apply()
+            }
+        }
+        lastDomainIsRecording =
+            prefs.getString(KEY_LAST_DOMAIN, null)?.let { it == "rec" } ?: (recCtx != null)
+    }
+
+    /** TrackStarted 时按当前队列所属域持久化(两域互不覆盖)。 */
     fun persist(context: Context) {
         val s = state.value
         if (s.tracks.isEmpty()) return
+        val isRec = s.queueSource == Recorder.dir(context).absolutePath
+        val sq = SavedQueue(s.tracks, s.currentIndex.coerceAtLeast(0), s.queueSource)
+        writeQueue(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit(),
+            if (isRec) "rec_" else "music_",
+            sq,
+        ).putString(KEY_LAST_DOMAIN, if (isRec) "rec" else "music")
+            .apply()
+        if (isRec) recCtx = sq else musicCtx = sq
+        lastDomainIsRecording = isRec
+    }
+
+    /** 冷启动恢复活动域队列(服务调用,暂停态)。 */
+    fun restoreActiveDomain(context: Context) {
+        val active = when {
+            lastDomainIsRecording -> recCtx ?: musicCtx
+            else -> musicCtx ?: recCtx
+        } ?: return
+        restoreQueue(active.tracks, active.index, active.source)
+    }
+
+    /**
+     * 视图切域(音乐 ↔ 录音):暂停当前播放,载入目标域的上次队列(暂停态),
+     * NowPlaying/高亮随之切换;目标域无记录则不动队列。两域记录互不影响。
+     */
+    fun swapDomain(context: Context, toRecording: Boolean) {
+        val recPath = Recorder.dir(context).absolutePath
+        val curIsRec = state.value.queueSource == recPath
+        if (toRecording == curIsRec) return
+        val target = (if (toRecording) recCtx else musicCtx) ?: return
+        AudioBridge.pause()
+        restoreQueue(target.tracks, target.index, target.source)
+        lastDomainIsRecording = toRecording
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_PATHS, s.tracks.joinToString(SEP) { it.path })
-            .putString(KEY_TITLES, s.tracks.joinToString(SEP) { it.title })
-            .putInt(KEY_INDEX, s.currentIndex.coerceAtLeast(0))
-            // 播放记录:队列来源一并持久化(null = 全部 → 空串)。
-            .putString(KEY_SOURCE, s.queueSource ?: "")
+            .putString(KEY_LAST_DOMAIN, if (toRecording) "rec" else "music")
             .apply()
     }
 
+    private fun readQueue(prefs: android.content.SharedPreferences, prefix: String): SavedQueue? {
+        val paths = prefs.getString(prefix + "paths", null)?.split(SEP) ?: return null
+        val titles = prefs.getString(prefix + "titles", null)?.split(SEP) ?: emptyList()
+        val index = prefs.getInt(prefix + "index", 0)
+        val source = prefs.getString(prefix + "source", "")?.takeIf { it.isNotBlank() }
+        val tracks = paths.mapIndexedNotNull { i, path ->
+            val file = File(path)
+            if (file.canRead()) {
+                Track(
+                    id = i.toLong(),
+                    title = titles.getOrElse(i) { file.name },
+                    artist = "",
+                    durationMs = 0,
+                    path = path,
+                )
+            } else {
+                null
+            }
+        }
+        return if (tracks.isEmpty()) null else SavedQueue(tracks, index, source)
+    }
+
+    private fun writeQueue(
+        ed: android.content.SharedPreferences.Editor,
+        prefix: String,
+        sq: SavedQueue,
+    ): android.content.SharedPreferences.Editor = ed
+        .putString(prefix + "paths", sq.tracks.joinToString(SEP) { it.path })
+        .putString(prefix + "titles", sq.tracks.joinToString(SEP) { it.title })
+        .putInt(prefix + "index", sq.index.coerceAtLeast(0))
+        .putString(prefix + "source", sq.source ?: "")
+
+    /** 旧单域记录读取(仅迁移用)。 */
     fun restore(context: Context): List<Track> {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val paths = prefs.getString(KEY_PATHS, null)?.split(SEP) ?: return emptyList()

@@ -60,9 +60,12 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 切换视图:null = 全部音乐;否则打开对应文件夹列表。不影响正在播放的队列。 */
+    /** 切换视图:null = 全部音乐;否则打开对应文件夹列表。音乐域内切换不动队列;
+     *  从录音域切回时载入音乐域上次队列(暂停态)。 */
     fun openFolder(folder: Folder?) {
+        val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
+            PlayerBus.swapDomain(ctx, toRecording = false)
             if (folder == null) {
                 if (fullScan.isEmpty()) fullScan = mediaStoreQuery(prefix = null)
                 PlayerBus.setView(fullScan, null)
@@ -202,33 +205,41 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun syncFromEngine() = PlayerBus.syncFromEngine()
 
     /**
-     * 播放记录:恢复上次播放的视图(目录仍在则打开该文件夹列表,高亮并滚动到
-     * 上次曲目;目录不存在回落「全部音乐」——由随后的 scan 兜底)。
+     * 播放记录:按活动域恢复上次视图(录音域→录音列表;音乐域→其来源文件夹,
+     * 目录不存在回落「全部音乐」)。两域记录独立,互不影响。
      */
     fun restoreLastView() {
         val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
-            // 直接读 prefs:savedSource 由服务 restore() 异步填充,
-            // 冷启动时本协程可能先于其执行,读内存值会拿到 null 而误退。
-            val source = PlayerBus.lastSource(ctx) ?: return@launch
-            // 等待服务恢复文件夹列表(启动竞态,最多 2s)。
+            // 等待服务加载双域记录(启动竞态,最多 2s)。
             val deadline = System.currentTimeMillis() + 2_000
-            while (PlayerBus.state.value.folders.isEmpty() && System.currentTimeMillis() < deadline) {
+            while (PlayerBus.musicCtx == null && PlayerBus.recCtx == null &&
+                System.currentTimeMillis() < deadline
+            ) {
                 Thread.sleep(100)
             }
-            val folder = PlayerBus.state.value.folders.firstOrNull { it.path == source }
-            when {
-                folder != null -> openFolderInternal(folder)
-                // 上次播放的是录音列表(不属于文件夹列表,单独分支)
-                source == Recorder.dir(ctx).absolutePath -> openRecordingsInternal(ctx)
+            if (PlayerBus.lastDomainIsRecording) {
+                openRecordingsInternal(ctx)
+                return@launch
             }
+            val source = PlayerBus.musicCtx?.source ?: return@launch // 无记录→scan 落全部
+            val folderDeadline = System.currentTimeMillis() + 2_000
+            while (PlayerBus.state.value.folders.isEmpty() && System.currentTimeMillis() < folderDeadline) {
+                Thread.sleep(100)
+            }
+            PlayerBus.state.value.folders
+                .firstOrNull { it.path == source }
+                ?.let { openFolderInternal(it) }
         }
     }
 
-    /** 打开录音视图:目录枚举(时间倒序)+ trackInfo 补时长。 */
+    /** 打开录音视图:先切域(载入录音域上次队列,暂停态),再装载列表。 */
     fun openRecordings() {
         val ctx = getApplication<Application>()
-        viewModelScope.launch(Dispatchers.IO) { openRecordingsInternal(ctx) }
+        viewModelScope.launch(Dispatchers.IO) {
+            PlayerBus.swapDomain(ctx, toRecording = true)
+            openRecordingsInternal(ctx)
+        }
     }
 
     private fun openRecordingsInternal(ctx: Context) {
