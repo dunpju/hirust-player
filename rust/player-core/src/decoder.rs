@@ -6,7 +6,7 @@ use std::path::Path;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::{FormatOptions, FormatReader, Packet, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -38,6 +38,8 @@ pub struct AudioDecoder {
     sample_buf: Option<SampleBuffer<f32>>,
     /// 最近一次创建 sample_buf 用的格式(rate, 声道数)。
     buf_key: Option<(u32, usize)>,
+    /// open 预探测时缓存的首包(重放进 next_block,样本零丢失)。
+    pending: Option<Packet>,
 }
 
 impl AudioDecoder {
@@ -60,50 +62,73 @@ impl AudioDecoder {
                 &MetadataOptions::default(),
             )
             .map_err(|e| CoreError::Open(format!("{}: {e}", path.display())))?;
-        let format = probed.format;
+        let mut format = probed.format;
 
-        let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or_else(|| CoreError::Open(format!("{}: 未找到音频轨", path.display())))?;
+        // 在轨道借用作用域内创建解码器并拷出所需标量,解除 format/track 借用。
+        let (track_id, time_base, mut rate, mut channels, n_frames, codec_desc, mut decoder) = {
+            let track = format
+                .tracks()
+                .iter()
+                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                .ok_or_else(|| CoreError::Open(format!("{}: 未找到音频轨", path.display())))?;
+            // 注意:AAC 等解码器的 codec_params() 返回入参原样(ASC 信息只
+            // 存在于解码缓冲的 spec),参数缺失时须**实际解码一个包**才能取到
+            // 权威采样率/声道(m4a/录音实测)。该包克隆缓存,next_block 重放
+            // (多解码一次代价可忽略,样本零丢失);参数齐全不触发,行为不变。
+            let decoder = symphonia::default::get_codecs()
+                .make(&track.codec_params, &DecoderOptions::default())
+                .map_err(|e| CoreError::Open(format!("{}: 创建解码器失败: {e}", path.display())))?;
+            let p = &track.codec_params;
+            let tb = p
+                .time_base
+                .ok_or_else(|| CoreError::Open(format!("{}: 缺少 time_base", path.display())))?;
+            (
+                track.id,
+                tb,
+                p.sample_rate,
+                p.channels.map(|c| c.count()),
+                p.n_frames,
+                format!("{:?}", p.codec),
+                decoder,
+            )
+        };
 
-        let params = &track.codec_params;
-        // 先创建解码器:isomp4/m4a 等 AAC 容器在 probe 阶段常缺声道/采样率,
-        // symphonia 在 make() 时解析 AudioSpecificConfig 后经 codec_params() 补全
-        // ——以解码器更新后的参数优先、轨道参数兜底。
-        let decoder = symphonia::default::get_codecs()
-            .make(params, &DecoderOptions::default())
-            .map_err(|e| CoreError::Open(format!("{}: 创建解码器失败: {e}", path.display())))?;
-        let updated = decoder.codec_params();
-        let rate = updated
-            .sample_rate
-            .or(params.sample_rate)
-            .ok_or_else(|| CoreError::Open(format!("{}: 缺少采样率", path.display())))?;
-        let channels = updated
-            .channels
-            .or(params.channels)
-            .map(|c| c.count())
-            .ok_or_else(|| CoreError::Open(format!("{}: 缺少声道信息", path.display())))?;
-        let duration_ms = updated
-            .n_frames
-            .or(params.n_frames)
-            .map(|n| n * 1000 / u64::from(rate))
-            .unwrap_or(0);
-        let time_base = params
-            .time_base
-            .or(updated.time_base)
-            .ok_or_else(|| CoreError::Open(format!("{}: 缺少 time_base", path.display())))?;
+        let mut pending: Option<Packet> = None;
+        if rate.is_none() || channels.is_none() {
+            loop {
+                let packet = format.next_packet().map_err(|e| {
+                    CoreError::Open(format!("{}: 预解码读取失败: {e}", path.display()))
+                })?;
+                if packet.track_id() != track_id {
+                    continue;
+                }
+                let decoded = decoder
+                    .decode(&packet)
+                    .map_err(|e| CoreError::Open(format!("{}: 预解码失败: {e}", path.display())))?;
+                let spec = *decoded.spec();
+                rate = Some(spec.rate);
+                channels = Some(spec.channels.count());
+                pending = Some(packet);
+                break;
+            }
+            // 重放同一包前复位解码器,丢弃探测期的半解码状态。
+            decoder.reset();
+        }
+        let rate =
+            rate.ok_or_else(|| CoreError::Open(format!("{}: 缺少采样率", path.display())))?;
+        let channels =
+            channels.ok_or_else(|| CoreError::Open(format!("{}: 缺少声道信息", path.display())))?;
+        let duration_ms = n_frames.map(|n| n * 1000 / u64::from(rate)).unwrap_or(0);
 
         let info = MediaInfo {
             sample_rate: rate,
             channels: channels as u8,
             duration_ms,
-            codec: format!("{:?}", params.codec),
+            codec: codec_desc,
         };
 
         Ok(Self {
-            track_id: track.id,
+            track_id,
             format,
             decoder,
             time_base,
@@ -111,6 +136,7 @@ impl AudioDecoder {
             pos_ms: 0,
             sample_buf: None,
             buf_key: None,
+            pending,
         })
     }
 
@@ -129,13 +155,19 @@ impl AudioDecoder {
     /// 返回的切片在下次调用前有效;坏包会被跳过。
     pub fn next_block(&mut self) -> Result<Option<&[f32]>, CoreError> {
         loop {
-            let packet = match self.format.next_packet() {
-                Ok(p) => p,
-                // symphonia 以 UnexpectedEof 表示自然结束。
-                Err(SymError::IoError(ref e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(None)
-                }
-                Err(e) => return Err(CoreError::Decode(e.to_string())),
+            // open 阶段预探测缓存的首包优先重放(样本零丢失)。
+            let packet = match self.pending.take() {
+                Some(p) => p,
+                None => match self.format.next_packet() {
+                    Ok(p) => p,
+                    // symphonia 以 UnexpectedEof 表示自然结束。
+                    Err(SymError::IoError(ref e))
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                    {
+                        return Ok(None)
+                    }
+                    Err(e) => return Err(CoreError::Decode(e.to_string())),
+                },
             };
 
             if packet.track_id() != self.track_id {
@@ -185,8 +217,9 @@ impl AudioDecoder {
                 },
             )
             .map_err(|e| CoreError::Decode(format!("seek 失败: {e}")))?;
-        // seek 后必须复位解码器,丢弃半解码状态。
+        // seek 后必须复位解码器,丢弃半解码状态;预探测首包随之作废。
         self.decoder.reset();
+        self.pending = None;
         self.pos_ms = ms;
         Ok(())
     }

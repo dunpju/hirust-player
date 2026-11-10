@@ -40,4 +40,16 @@ object Settings {
             .putInt(KEY_MIN_DURATION_SEC, sec.coerceIn(0, 300))
             .apply()
     }
+
+    /** 悬浮键授权引导 Toast 是否已提示过一次。 */
+    fun overlayHintShown(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean("overlay_hint_shown", false)
+
+    fun markOverlayHintShown(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("overlay_hint_shown", true)
+            .apply()
+    }
 }

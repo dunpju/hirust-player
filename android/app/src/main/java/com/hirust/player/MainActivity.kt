@@ -158,8 +158,17 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
                 }
                 Lifecycle.Event.ON_PAUSE -> vm.stopPolling()
                 Lifecycle.Event.ON_STOP ->
-                    // 退到桌面/其他应用:显示桌面悬浮键(需已授权,否则静默)。
-                    FloatButtonController.show(context)
+                    // 退到桌面/其他应用:显示桌面悬浮键;未授权则首次 Toast 引导。
+                    if (SystemSettings.canDrawOverlays(context)) {
+                        FloatButtonController.show(context)
+                    } else if (!Settings.overlayHintShown(context)) {
+                        Settings.markOverlayHintShown(context)
+                        Toast.makeText(
+                            context,
+                            "桌面悬浮键需先授权:回到 App → ⚙ 设置 → 桌面悬浮录音键 → 去授权",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 else -> Unit
             }
         }

@@ -66,3 +66,72 @@ fn open_missing_file_is_open_error() {
     };
     assert!(matches!(err, CoreError::Open(_)));
 }
+
+/// m4a/AAC 轨道参数常缺声道(录音场景实测);用 ffmpeg 现场生成样本验证
+/// 预解码兜底:open 成功、spec 正确、首块非空且后续续流。
+#[test]
+fn m4a_prefetch_fills_channels_and_keeps_stream() {
+    if std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .is_err()
+    {
+        eprintln!("跳过:本机无 ffmpeg(CI ubuntu 预装)");
+        return;
+    }
+    let path = std::env::temp_dir().join(format!("hirust-m4a-{}.m4a", std::process::id()));
+    let out = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=2",
+            "-ar",
+            "44100",
+            "-ac",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+        ])
+        .arg(path.to_string_lossy().as_ref())
+        .output()
+        .expect("运行 ffmpeg");
+    assert!(
+        out.status.success(),
+        "ffmpeg 生成失败: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut dec = AudioDecoder::open(&path)
+        .unwrap_or_else(|e| panic!("m4a 打开失败(AAC 参数兜底未生效?): {e}"));
+    assert_eq!(dec.info().sample_rate, 44_100);
+    assert_eq!(dec.info().channels, 1);
+    assert!(
+        dec.info().duration_ms > 1_000,
+        "duration = {}",
+        dec.info().duration_ms
+    );
+
+    // 首块来自预解码缓存,非空;后续包正常续流。
+    let first = dec.next_block().unwrap().expect("首块应非空");
+    assert!(!first.is_empty());
+    let mut more = 0;
+    while let Some(b) = dec.next_block().unwrap() {
+        if !b.is_empty() {
+            more += 1;
+            if more >= 10 {
+                break;
+            }
+        }
+    }
+    assert!(more >= 10, "续流块数不足: {more}");
+
+    // seek 后仍可解码。
+    dec.seek_ms(1_000).unwrap();
+    assert!(dec.next_block().unwrap().is_some());
+
+    let _ = std::fs::remove_file(&path);
+}
