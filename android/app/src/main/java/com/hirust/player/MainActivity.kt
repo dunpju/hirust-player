@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -412,7 +413,7 @@ private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
                 OutlinedButton(onClick = {
                     context.startActivity(
                         Intent(
-                            SystemSettings.ACTION_MANAGE_OVERLAY_DATA,
+                            SystemSettings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:${context.packageName}"),
                         ),
                     )
