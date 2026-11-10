@@ -21,7 +21,7 @@ Android 本地音频播放器:**Rust 承担全部播放核心**(解码、引擎�
 | M3 | 播放列表 + 后台播放(MediaSession) | ✅ 2026-10-16 真机验收通过 |
 | M4 | 元数据/封面/seek/播放模式 | ✅ 2026-10-16 真机验收通过 |
 | M5 | 主题/设置/焦点与耳机体验打磨 | ✅ 2026-10-16 真机验收通过 |
-| M6 | 签名发布 + GitHub Releases | ✅ 2026-10-20 首个 Release v0.8.0 已发布 |
+| M6 | 签名发布 + GitHub Releases | ✅ v0.8.0 / v0.10.0 已发布 |
 
 ## 3. 架构总览
 
@@ -221,7 +221,7 @@ adb logcat -s hirust
 - [x] R8 压缩混淆启用(proguard-rules.pro:keep AudioBridge/PlayStates/RepeatModes/EngineListener);版本自动化:`-PVERSION_NAME=vX.Y.Z` → versionName/三段 versionCode
 - [x] 格式评估(实证):symphonia 0.5.5 无 opus/ape/wavpack;且默认 feature 不含 mp3/aac → 已显式开启 mp3/aac/isomp4/opt-simd(修复 M0 以来的隐性缺口)
 - [x] R8 后真机回归(JNI 加载、播放、封面)✅(2026-10-16 真机通过)
-- [x] 推 tag `v0.8.0` → Release 工作流全绿,Releases 页发布 `hirust-player-v0.8.0.apk`(2026-10-20;Secrets 已配为正式签名,未配自动退 debug 签名)
+- [x] 推 tag `v0.8.0` → Release 全绿,发布 `hirust-player-v0.8.0.apk`(2026-10-20);推 tag `v0.10.0`(2026-11-10)发布 `hirust-player-v0.10.0.apk`(收进文件夹列表/倍速/播放记录/录音四批功能与全部修复)
 - 补充(M6 后):应用图标落地(adaptive icon,26+ 蒙版自适应;24/25 layer-list 兜底;全 XML 无 PNG);CI 修复见 M0 修正记录
 - 密钥生成与 Secrets 配置步骤见 README「发布」
 
@@ -261,7 +261,7 @@ adb logcat -s hirust
 - [x] 修复:重开后标题正确但视图落在「全部音乐」且无高亮滚动——`restoreLastView` 冷启动时可能先于服务 `restore()` 执行,内存版 `savedSource` 尚为 null 即误退。改为直接读 prefs(`PlayerBus.lastSource(ctx)`),不依赖服务时序;文件夹等待循环保持在读源之后
 - [x] 验收:文件夹列表中播放 → 杀进程重开 → 自动打开该文件夹、高亮滚动到上次曲目、NowPlaying 显示上次队列(暂停态);「全部音乐」播放重开 → 停在全部;删除该文件夹后重开 → 回落到全部 ✅(2026-10-29 真机通过)
 
-#### 录音 + 分享微信(0.10.0,2026-11-10)🔶 代码完成,待真机回归验收
+#### 录音 + 分享微信(0.10.0,2026-11-10)✅ 真机验收通过,Release v0.10.0 发布
 
 - 需求:录音(m4a/暂停继续)、分享微信(系统分享面板+FileProvider,不用微信 SDK)、**悬浮录音键(全局)**、**严格不破坏现有播放**(隔离约束+回归矩阵)
 - 设计唯一来源:[docs/design-recording.md](docs/design-recording.md)(UI 线框、状态机、零耦合架构、测试矩阵、实施清单)
@@ -270,7 +270,7 @@ adb logcat -s hirust
 - 修复:播放录音报「缺少声道信息」——**两轮定位**:①isomp4/m4a probe 阶段缺声道/采样率;②`codec_params()` 兜底无效(AAC 源码实证:返回入参原样,ASC 只存在于解码缓冲 spec)。最终方案:参数缺失时**预解码一个包取 decoded.spec()**,该包缓存(next_block 重放,零丢失;重放前 decoder.reset);mp3/wav/flac 参数齐全不触发。新增 ffmpeg 现场生成 m4a 的集成测试(本地与 CI ubuntu 均真跑验证),共 27 用例 ×3 轮全绿(唯一触碰播放链路,系引擎既有缺陷,所有 m4a 音乐受益)
 - 增补(2026-11-10):①**桌面悬浮键**——FloatButtonService 系统悬浮窗(SYSTEM_ALERT_WINDOW 特殊授权,设置页引导);ON_STOP 显示/ON_RESUME 隐藏,拖动移动,点击开始/停止录音(无麦克风权限拉起主界面),图标随录音态切换;零触碰播放链路(独立服务+Recorder 单例);未授权首次退后台 Toast 引导授权;设置页按钮在「设置」标题行右侧。②**录音删除**——列表行按住右滑露出红底删除按钮(半程吸附/回弹),删文件并移出视图;删除播放中的录音不受影响。③**坑位记录**:AlertDialog 的 text 槽对兄弟组件是**叠加绘制**而非纵向排列——正文内容(含说明文字)必须全部放在唯一的 Column 内,否则与首行文字重影(实测踩坑,已修)
 - 增补(2026-11-10):④**音乐/录音播放记录双域独立**——此前单条记录互相覆盖(播录音后切音乐,记录仍是录音)。现双域持久化(`music_*`/`rec_*` 各存队列+下标+来源+`last_domain` 活动域标记):视图切域(chips 音乐↔录音)时暂停当前播放并载入目标域上次队列(暂停态,NowPlaying/高亮随切);`persist` 按 `queueSource==Recordings 路径` 归域写入;冷启动按 `last_domain` 恢复活动域;旧单域记录一次性迁移(按来源归类);目标域无记录则不动队列
-- [ ] 验收:按设计文档 §6.2 真机全功能回归矩阵 + §6.3 录音清单 + 增补项(桌面悬浮键授权后桌面可见/可拖/可录音,左滑删除生效;录音/m4a 可正常播放;设置页无重影、标题行右侧授权按钮;**音乐↔录音切换各自恢复上次队列/曲目,杀进程重开后活动域正确、另一域切回时记录仍在**)
+- [x] 验收:§6.2 真机全功能回归矩阵 + §6.3 录音清单 + 增补项(桌面悬浮键/删除/m4a/设置页/双域播放记录)✅(2026-11-10 真机通过;Release v0.10.0 发布)
 
 ## 10. CI(GitHub Actions)
 
