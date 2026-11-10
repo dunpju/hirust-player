@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 录音 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 桌面悬浮录音键(特殊授权,设置页引导) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -39,6 +41,11 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- 桌面悬浮录音键 -->
+        <service
+            android:name=".FloatButtonService"
+            android:exported="false" />
 
         <!-- 录音分享(FileProvider,微信等以文件形式接收) -->
         <provider

@@ -3,15 +3,19 @@ package com.hirust.player
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings as SystemSettings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -48,13 +53,16 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -66,13 +74,16 @@ import com.hirust.player.audio.AudioBridge
 import com.hirust.player.audio.RepeatModes
 import com.hirust.player.ui.HiRustTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         startService(Intent(this, PlaybackService::class.java))
+        startService(Intent(this, FloatButtonService::class.java))
         setContent {
             HiRustTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -137,8 +148,16 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> vm.startPolling()
+                Lifecycle.Event.ON_RESUME -> {
+                    vm.startPolling()
+                    vm.refreshRecordingsIfCurrent()
+                    // 回前台:应用内 FAB 接管,桌面悬浮键隐藏。
+                    FloatButtonController.hide()
+                }
                 Lifecycle.Event.ON_PAUSE -> vm.stopPolling()
+                Lifecycle.Event.ON_STOP ->
+                    // 退到桌面/其他应用:显示桌面悬浮键(需已授权,否则静默)。
+                    FloatButtonController.show(context)
                 else -> Unit
             }
         }
@@ -259,6 +278,8 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             onPick = vm::playAt,
             shareEnabled = ui.viewSource == recordingsPath,
             onShare = { track -> Recorder.share(context, track.path) },
+            deleteEnabled = ui.viewSource == recordingsPath,
+            onDelete = { track -> vm.deleteRecording(track.path) },
             modifier = Modifier.weight(1f),
         )
     }
@@ -378,8 +399,89 @@ private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "桌面悬浮录音键",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = {
+                    context.startActivity(
+                        Intent(
+                            SystemSettings.ACTION_MANAGE_OVERLAY_DATA,
+                            Uri.parse("package:${context.packageName}"),
+                        ),
+                    )
+                }) {
+                    Text(if (SystemSettings.canDrawOverlays(context)) "已授权" else "去授权")
+                }
+            }
         },
     )
+}
+
+/**
+ * 左滑露出删除按钮的行容器(录音列表):按住右滑出红底删除键,
+ * 松手按阈值吸附(半程以上停留,否则回弹);点删除执行回调并复位。
+ */
+@Composable
+private fun SwipeRevealDelete(
+    onDelete: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val maxShift = with(density) { 76.dp.toPx() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clipToBounds(),
+    ) {
+        // 底层:红底删除按钮(左缘)
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color(0xFFB3261E)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = {
+                    scope.launch { offsetX.animateTo(0f) }
+                    onDelete()
+                },
+                modifier = Modifier.padding(start = 12.dp),
+            ) { Text("删除", color = Color.White) }
+        }
+        // 前层:行内容,横向拖动位移(0..maxShift),松手按阈值吸附。
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .background(MaterialTheme.colorScheme.surface)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val target = (offsetX.value + dragAmount).coerceIn(0f, maxShift)
+                            scope.launch { offsetX.snapTo(target) }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                offsetX.animateTo(
+                                    if (offsetX.value >= maxShift / 2) maxShift else 0f,
+                                )
+                            }
+                        },
+                    )
+                },
+        ) {
+            content()
+        }
+    }
 }
 
 /** 正在播放条:封面(内嵌封面优先,MediaStore 专辑封面兜底)+ 标题/艺人。 */
@@ -431,6 +533,8 @@ private fun TrackList(
     modifier: Modifier = Modifier,
     shareEnabled: Boolean = false,
     onShare: (Track) -> Unit = {},
+    deleteEnabled: Boolean = false,
+    onDelete: (Track) -> Unit = {},
 ) {
     if (tracks.isEmpty()) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -452,6 +556,7 @@ private fun TrackList(
     LazyColumn(modifier = modifier, state = listState) {
         itemsIndexed(tracks, key = { _, t -> t.path }) { index, track ->
             val current = highlightEnabled && index == currentIndex
+            val rowContent: @Composable () -> Unit = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -485,6 +590,12 @@ private fun TrackList(
                 if (shareEnabled) {
                     TextButton(onClick = { onShare(track) }) { Text("分享") }
                 }
+            }
+            }
+            if (deleteEnabled) {
+                SwipeRevealDelete(onDelete = { onDelete(track) }) { rowContent() }
+            } else {
+                rowContent()
             }
         }
     }

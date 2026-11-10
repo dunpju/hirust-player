@@ -265,6 +265,29 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 删除录音文件并从当前视图移除(队列不动;Android 可删除已打开文件,播完即止)。 */
+    fun deleteRecording(path: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = File(path).delete()
+            PlayerBus.update { s ->
+                s.copy(
+                    view = s.view.filterNot { it.path == path },
+                    error = if (ok) s.error else "删除失败",
+                )
+            }
+        }
+    }
+
+    /** 若当前为录音视图则刷新(悬浮键在后台停止录音后回到前台用)。 */
+    fun refreshRecordingsIfCurrent() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (PlayerBus.state.value.viewSource == Recorder.dir(ctx).absolutePath) {
+                openRecordingsInternal(ctx)
+            }
+        }
+    }
+
     /**
      * 前台期间周期轮询引擎状态(2Hz):兜底事件链中断(服务重建/异常毒化等)。
      * 事件泵正常时事件仍主导实时性,轮询仅做校正,开销可忽略。
