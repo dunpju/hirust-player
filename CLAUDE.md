@@ -261,11 +261,13 @@ adb logcat -s hirust
 - [x] 修复:重开后标题正确但视图落在「全部音乐」且无高亮滚动——`restoreLastView` 冷启动时可能先于服务 `restore()` 执行,内存版 `savedSource` 尚为 null 即误退。改为直接读 prefs(`PlayerBus.lastSource(ctx)`),不依赖服务时序;文件夹等待循环保持在读源之后
 - [x] 验收:文件夹列表中播放 → 杀进程重开 → 自动打开该文件夹、高亮滚动到上次曲目、NowPlaying 显示上次队列(暂停态);「全部音乐」播放重开 → 停在全部;删除该文件夹后重开 → 回落到全部 ✅(2026-10-29 真机通过)
 
-#### 录音 + 分享微信(0.10.0,2026-11-10)🔶 开发中,设计已定稿
+#### 录音 + 分享微信(0.10.0,2026-11-10)🔶 代码完成,待真机回归验收
 
 - 需求:录音(m4a/暂停继续)、分享微信(系统分享面板+FileProvider,不用微信 SDK)、**悬浮录音键(全局)**、**严格不破坏现有播放**(隔离约束+回归矩阵)
 - 设计唯一来源:[docs/design-recording.md](docs/design-recording.md)(UI 线框、状态机、零耦合架构、测试矩阵、实施清单)
-- 纪律:播放链路(player-core/player-jni/AudioBridge/PlaybackService/EnginePlayer)零触碰;Rust 26 用例回归;真机全功能回归矩阵通过才算交付
+- 实现:Recorder.kt(MediaRecorder 状态机/心跳线程/分享)、全局悬浮 FAB + 全屏录音覆盖层(计时/24 根电平条/暂停/停止)、「录音」chip、行内分享、RECORD_AUDIO 运行时权限、录音视图(时间倒序 + trackInfo 补时长 + 0 字节残留清理)、播放记录恢复含录音视图分支
+- 隔离校验(2026-11-10):改动文件仅 gradle 版本/MainActivity/PlayerViewModel/文档;播放链路六文件零 diff;Rust 26 用例 ×3 轮全绿
+- [ ] 验收:按设计文档 §6.2 真机全功能回归矩阵 + §6.3 录音新功能清单(悬浮键/计时/电平/暂停/<1s 丢弃/分享微信可播/录音中后台播放不受影响)
 
 ## 10. CI(GitHub Actions)
 

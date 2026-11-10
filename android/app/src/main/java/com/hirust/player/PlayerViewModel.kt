@@ -217,7 +217,51 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 Thread.sleep(100)
             }
             val folder = PlayerBus.state.value.folders.firstOrNull { it.path == source }
-            if (folder != null) openFolderInternal(folder)
+            when {
+                folder != null -> openFolderInternal(folder)
+                // 上次播放的是录音列表(不属于文件夹列表,单独分支)
+                source == Recorder.dir(ctx).absolutePath -> openRecordingsInternal(ctx)
+            }
+        }
+    }
+
+    /** 打开录音视图:目录枚举(时间倒序)+ trackInfo 补时长。 */
+    fun openRecordings() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) { openRecordingsInternal(ctx) }
+    }
+
+    private fun openRecordingsInternal(ctx: Context) {
+        // 清理杀进程残留的 0 字节文件(设计文档 §6.3)。
+        Recorder.dir(ctx).listFiles()?.filter { it.length() == 0L }?.forEach { it.delete() }
+        val dirPath = Recorder.dir(ctx).absolutePath
+        val tracks = Recorder.dir(ctx)
+            .listFiles { f: File -> f.isFile && f.extension.equals("m4a", ignoreCase = true) }
+            ?.sortedByDescending { it.lastModified() }
+            .orEmpty()
+            .map { f ->
+                Track(id = -1, title = f.nameWithoutExtension, artist = "", durationMs = 0, path = f.absolutePath)
+            }
+            .map { t -> if (t.durationMs == 0L) enrichFromTags(t) else t }
+        PlayerBus.setView(tracks, dirPath)
+    }
+
+    // ---- 录音控制(状态机在 Recorder,见 docs/design-recording.md §3.2) ----
+
+    /** 开始录音(权限已由 UI 层确认)。 */
+    fun startRecording() = Recorder.start(getApplication())
+
+    /** 暂停/继续录音。 */
+    fun toggleRecordingPause() = Recorder.togglePause()
+
+    /** 停止并保存;当前处于录音视图则刷新列表(新录音置顶)。 */
+    fun stopRecording() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            Recorder.stop()
+            if (PlayerBus.state.value.viewSource == Recorder.dir(ctx).absolutePath) {
+                openRecordingsInternal(ctx)
+            }
         }
     }
 

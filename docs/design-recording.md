@@ -159,10 +159,10 @@ Idle ──start()──▶ Recording(running)◀─resume()─┐
 - [x] `Recorder.kt`:状态机 + 心跳线程 + 分享(2026-11-10)
 - [x] `res/xml/file_paths.xml` + Manifest(RECORD_AUDIO / FileProvider)
 - [x] 本设计文档
+- [x] MainActivity:全局悬浮 FAB、录音覆盖层(计时/电平/暂停/停止)、「录音」chip、行内分享、RECORD_AUDIO 权限流
+- [x] PlayerViewModel:openRecordings(枚举+补全)、录音控制封装、restoreLastView 录音分支
+- [x] 启动清理:打开录音视图时清理 0 字节残留
+- [x] 版本 0.10.0(三处同步)
 
 **待完成**
-- [ ] MainActivity:悬浮 FAB(全局)、录音覆盖层(计时/电平/暂停/停止)、「录音」chip、行内分享按钮、RECORD_AUDIO 运行时权限流
-- [ ] PlayerViewModel:`openRecordings()`(目录枚举 + trackInfo 补全 + setView)、录音控制封装、`restoreLastView` 录音分支
-- [ ] 启动清理:Recordings 目录 0 字节残留文件
-- [ ] 版本 0.10.0(三处同步)+ CLAUDE.md 看板/契约表(trackInfo 已有,无新 JNI)
-- [ ] §6 全量测试与回归
+- [ ] §6 全量测试与回归(Rust 零漂移 + CI + 真机矩阵)

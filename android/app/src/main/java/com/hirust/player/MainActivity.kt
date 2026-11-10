@@ -5,18 +5,23 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -26,6 +31,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -38,12 +44,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -138,9 +146,25 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // ---- 录音(全局悬浮 FAB + 覆盖层,设计见 docs/design-recording.md) ----
+    val recordState by Recorder.state.collectAsState()
+    val recordingsPath = remember(context) { Recorder.dir(context).absolutePath }
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            vm.startRecording()
+        } else {
+            Toast.makeText(context, "需要麦克风权限才能录音", Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(recordState.error) {
+        recordState.error?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
     Column(
         modifier = Modifier
-            .safeDrawingPadding()
             .padding(horizontal = 24.dp)
             .fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -163,8 +187,10 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
         PlaylistChips(
             folders = ui.folders,
             viewSource = ui.viewSource,
+            recordingsPath = recordingsPath,
             onPick = vm::openFolder,
             onAdd = { folderPicker.launch(null) },
+            onOpenRecordings = vm::openRecordings,
         )
 
         NowPlaying(track = ui.tracks.getOrNull(ui.currentIndex))
@@ -231,8 +257,39 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
             highlightEnabled = ui.viewSource == ui.queueSource,
             playing = ui.playing,
             onPick = vm::playAt,
+            shareEnabled = ui.viewSource == recordingsPath,
+            onShare = { track -> Recorder.share(context, track.path) },
             modifier = Modifier.weight(1f),
         )
+    }
+
+        // 全局悬浮录音键:所有视图可见;录音中隐藏(覆盖层接管)。
+        if (!recordState.active) {
+            FloatingActionButton(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        vm.startRecording()
+                    } else {
+                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp),
+            ) { Text("🎤") }
+        }
+
+        if (recordState.active) {
+            RecordingOverlay(
+                state = recordState,
+                onTogglePause = vm::toggleRecordingPause,
+                onStop = vm::stopRecording,
+            )
+        }
     }
 
     if (showSettings) {
@@ -245,8 +302,10 @@ private fun PlayerScreen(vm: PlayerViewModel = viewModel()) {
 private fun PlaylistChips(
     folders: List<Folder>,
     viewSource: String?,
+    recordingsPath: String,
     onPick: (Folder?) -> Unit,
     onAdd: () -> Unit,
+    onOpenRecordings: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -258,6 +317,11 @@ private fun PlaylistChips(
             selected = viewSource == null,
             onClick = { onPick(null) },
             label = { Text("全部音乐") },
+        )
+        FilterChip(
+            selected = viewSource == recordingsPath,
+            onClick = onOpenRecordings,
+            label = { Text("录音") },
         )
         folders.forEach { folder ->
             FilterChip(
@@ -365,6 +429,8 @@ private fun TrackList(
     playing: Boolean,
     onPick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    shareEnabled: Boolean = false,
+    onShare: (Track) -> Unit = {},
 ) {
     if (tracks.isEmpty()) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -416,6 +482,9 @@ private fun TrackList(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                if (shareEnabled) {
+                    TextButton(onClick = { onShare(track) }) { Text("分享") }
+                }
             }
         }
     }
@@ -460,4 +529,65 @@ private fun SeekBar(
 private fun formatMs(ms: Long): String {
     val totalSec = ms / 1000
     return "%d:%02d".format(totalSec / 60, totalSec % 60)
+}
+
+/** 录音中覆盖层:计时 + 24 根电平条 + 暂停/停止(拦截一切交互)。 */
+@Composable
+private fun RecordingOverlay(
+    state: Recorder.State,
+    onTogglePause: () -> Unit,
+    onStop: () -> Unit,
+) {
+    // 电平历史:每 100ms(随 elapsedMs 变化)滚动追加一根。
+    val bars = remember { mutableStateListOf<Float>() }
+    LaunchedEffect(state.elapsedMs) {
+        bars.add((state.amplitude / 32767f).coerceIn(0.06f, 1f))
+        while (bars.size > 24) bars.removeAt(0)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.78f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.padding(24.dp),
+        ) {
+            Text(
+                text = if (state.paused) "‖  已暂停" else "●  录音中",
+                color = if (state.paused) Color.White else Color(0xFFFF7A59),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = formatMs(state.elapsedMs),
+                color = Color.White,
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.height(48.dp),
+            ) {
+                bars.forEach { level ->
+                    Box(
+                        modifier = Modifier
+                            .width(5.dp)
+                            .height((6 + level * 42).dp)
+                            .background(
+                                if (state.paused) Color.Gray else Color(0xFFFF7A59),
+                            )
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(onClick = onTogglePause) {
+                    Text(if (state.paused) "▶ 继续" else "⏸ 暂停")
+                }
+                Button(onClick = onStop) { Text("⏹ 停止并保存") }
+            }
+        }
+    }
 }
