@@ -424,11 +424,11 @@ private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
                     "深浅色跟随系统;Android 12+ 自动动态取色。",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(
+                    "桌面悬浮录音键:授权后退出应用,桌面显示悬浮球。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
-            Text(
-                "桌面悬浮录音键:授权后退出应用,桌面显示悬浮球。",
-                style = MaterialTheme.typography.bodySmall,
-            )
         },
     )
 }
