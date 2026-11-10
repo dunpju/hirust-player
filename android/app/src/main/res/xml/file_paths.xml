@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 分享路径:应用专属外部存储下的录音目录 -->
+<paths>
+    <external-files-path
+        name="recordings"
+        path="Recordings/" />
+</paths>
