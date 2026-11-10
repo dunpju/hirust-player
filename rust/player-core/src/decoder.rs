@@ -69,19 +69,30 @@ impl AudioDecoder {
             .ok_or_else(|| CoreError::Open(format!("{}: 未找到音频轨", path.display())))?;
 
         let params = &track.codec_params;
-        let rate = params
+        // 先创建解码器:isomp4/m4a 等 AAC 容器在 probe 阶段常缺声道/采样率,
+        // symphonia 在 make() 时解析 AudioSpecificConfig 后经 codec_params() 补全
+        // ——以解码器更新后的参数优先、轨道参数兜底。
+        let decoder = symphonia::default::get_codecs()
+            .make(params, &DecoderOptions::default())
+            .map_err(|e| CoreError::Open(format!("{}: 创建解码器失败: {e}", path.display())))?;
+        let updated = decoder.codec_params();
+        let rate = updated
             .sample_rate
+            .or(params.sample_rate)
             .ok_or_else(|| CoreError::Open(format!("{}: 缺少采样率", path.display())))?;
-        let channels = params
+        let channels = updated
             .channels
+            .or(params.channels)
             .map(|c| c.count())
             .ok_or_else(|| CoreError::Open(format!("{}: 缺少声道信息", path.display())))?;
-        let duration_ms = params
+        let duration_ms = updated
             .n_frames
+            .or(params.n_frames)
             .map(|n| n * 1000 / u64::from(rate))
             .unwrap_or(0);
         let time_base = params
             .time_base
+            .or(updated.time_base)
             .ok_or_else(|| CoreError::Open(format!("{}: 缺少 time_base", path.display())))?;
 
         let info = MediaInfo {
@@ -90,9 +101,6 @@ impl AudioDecoder {
             duration_ms,
             codec: format!("{:?}", params.codec),
         };
-        let decoder = symphonia::default::get_codecs()
-            .make(params, &DecoderOptions::default())
-            .map_err(|e| CoreError::Open(format!("{}: 创建解码器失败: {e}", path.display())))?;
 
         Ok(Self {
             track_id: track.id,

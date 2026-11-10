@@ -267,7 +267,8 @@ adb logcat -s hirust
 - 设计唯一来源:[docs/design-recording.md](docs/design-recording.md)(UI 线框、状态机、零耦合架构、测试矩阵、实施清单)
 - 实现:Recorder.kt(MediaRecorder 状态机/心跳线程/分享)、全局悬浮 FAB + 全屏录音覆盖层(计时/24 根电平条/暂停/停止)、「录音」chip、行内分享、RECORD_AUDIO 运行时权限、录音视图(时间倒序 + trackInfo 补时长 + 0 字节残留清理)、播放记录恢复含录音视图分支
 - 隔离校验(2026-11-10):改动文件仅 gradle 版本/MainActivity/PlayerViewModel/文档;播放链路六文件零 diff;Rust 26 用例 ×3 轮全绿
-- [ ] 验收:按设计文档 §6.2 真机全功能回归矩阵 + §6.3 录音新功能清单(悬浮键/计时/电平/暂停/<1s 丢弃/分享微信可播/录音中后台播放不受影响)
+- 修复:播放录音报「缺少声道信息」——isomp4/m4a 在 probe 阶段常缺声道/采样率,symphonia 须先 make 解码器(解析 AAC AudioSpecificConfig)后经 `codec_params()` 补全。`AudioDecoder::open` 改为解码器参数优先、轨道参数兜底(普通 m4a 音乐同样受益);26 用例 ×3 轮回归全绿(唯一一次触碰播放链路,属引擎既有缺陷修复)
+- [ ] 验收:按设计文档 §6.2 真机全功能回归矩阵 + §6.3 录音新功能清单(悬浮键/计时/电平/暂停/<1s 丢弃/分享微信可播/录音中后台播放不受影响;**录音/m4a 可正常播放**)
 
 ## 10. CI(GitHub Actions)
 
