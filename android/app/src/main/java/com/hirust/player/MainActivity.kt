@@ -389,7 +389,22 @@ private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
             }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-        title = { Text("设置") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("设置")
+                Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    context.startActivity(
+                        Intent(
+                            SystemSettings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}"),
+                        ),
+                    )
+                }) {
+                    Text(if (SystemSettings.canDrawOverlays(context)) "已授权" else "去授权")
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("输出缓冲:${bufferMs} ms(下一首生效)")
@@ -410,26 +425,10 @@ private fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "桌面悬浮录音键",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = {
-                    context.startActivity(
-                        Intent(
-                            SystemSettings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}"),
-                        ),
-                    )
-                }) {
-                    Text(if (SystemSettings.canDrawOverlays(context)) "已授权" else "去授权")
-                }
-            }
+            Text(
+                "桌面悬浮录音键:授权后退出应用,桌面显示悬浮球。",
+                style = MaterialTheme.typography.bodySmall,
+            )
         },
     )
 }
